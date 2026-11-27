@@ -377,12 +377,18 @@ function Progress({ pct }: { pct: number }) {
 
 
 function EarningsCard({ data }: { data: DashboardData }) {
-  const { today, monthly, lifetimeTotalPhp } = data.earnings;
-  const defaultPeriod = monthly[monthly.length - 1]?.period ?? "";
-  const [selected, setSelected] = useState(defaultPeriod);
-  const period = monthly.some((month) => month.period === selected) ? selected : defaultPeriod;
-  const month = monthly.find((item) => item.period === period) ?? monthly[monthly.length - 1];
-  const maxTotal = Math.max(1, ...monthly.map((item) => item.totalPhp));
+  const { today, daily, monthly, lifetimeTotalPhp } = data.earnings;
+  const [view, setView] = useState<"day" | "month">("day");
+  const defaultDay = daily[daily.length - 1]?.period ?? "";
+  const defaultMonth = monthly[monthly.length - 1]?.period ?? "";
+  const [selectedDay, setSelectedDay] = useState(defaultDay);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const dayPeriod = daily.some((item) => item.period === selectedDay) ? selectedDay : defaultDay;
+  const monthPeriod = monthly.some((item) => item.period === selectedMonth) ? selectedMonth : defaultMonth;
+  const day = daily.find((item) => item.period === dayPeriod) ?? daily[daily.length - 1];
+  const month = monthly.find((item) => item.period === monthPeriod) ?? monthly[monthly.length - 1];
+  const maxMonth = Math.max(1, ...monthly.map((item) => item.totalPhp));
+  const maxDay = Math.max(1, ...daily.map((item) => item.totalPhp));
 
   return (
     <CardShell
@@ -401,7 +407,7 @@ function EarningsCard({ data }: { data: DashboardData }) {
         <div className="rounded-2xl bg-black/25 p-3">
           <div className="text-[11px] text-muted-foreground">Consumption Savings</div>
           <div className="tabular mt-1 text-lg font-semibold text-emerald-300">{formatPeso(today.consumptionSavingsPhp)}</div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">{formatKwh1(today.selfConsumedKwh)} kWh self-consumed</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">{formatKwh1(today.selfSuppliedKwh)} kWh saved today</div>
         </div>
         <div className="rounded-2xl bg-black/25 p-3">
           <div className="text-[11px] text-muted-foreground">Feed-In Earnings</div>
@@ -412,67 +418,157 @@ function EarningsCard({ data }: { data: DashboardData }) {
 
       <div className="my-4 h-px bg-white/10" />
 
-      <div className="text-[11px] font-semibold tracking-wide text-amber-300">PAST MONTHLY EARNINGS</div>
-      <div className="mt-1 flex items-end justify-between gap-3">
-        <div>
-          <div className="tabular text-3xl font-semibold">{formatPeso(lifetimeTotalPhp)}</div>
-          <div className="text-xs text-muted-foreground">Total Lifetime Earnings</div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold tracking-wide text-amber-300">
+          {view === "day" ? "DAILY EARNINGS" : "PAST MONTHLY EARNINGS"}
         </div>
-        <Banknote className="size-8 text-amber-300/80" aria-hidden="true" />
+        <div className="inline-flex rounded-full bg-white/8 p-0.5 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setView("day")}
+            className={cn("rounded-full px-3 py-1", view === "day" ? "bg-emerald-500/20 text-emerald-300" : "text-muted-foreground")}
+            aria-pressed={view === "day"}
+          >
+            Day
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("month")}
+            className={cn("rounded-full px-3 py-1", view === "month" ? "bg-emerald-500/20 text-emerald-300" : "text-muted-foreground")}
+            aria-pressed={view === "month"}
+          >
+            Month
+          </button>
+        </div>
       </div>
 
-      <div className="mt-4 flex items-end gap-2">
-        {monthly.map((item) => {
-          const height = Math.max(8, Math.round((item.totalPhp / maxTotal) * 72));
-          const active = item.period === period;
-          return (
-            <button
-              key={item.period}
-              type="button"
-              onClick={() => setSelected(item.period)}
-              className="flex min-w-0 flex-1 flex-col items-center gap-1"
-              aria-pressed={active}
-              aria-label={`${item.title} ${formatPeso(item.totalPhp)}`}
-            >
-              <span className={cn("w-full rounded-t-lg transition-colors", active ? "bg-emerald-400" : "bg-emerald-400/35")} style={{ height }} />
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-        {monthly.map((item) => {
-          const active = item.period === period;
-          return (
-            <button
-              key={`${item.period}-pill`}
-              type="button"
-              onClick={() => setSelected(item.period)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1 text-xs font-semibold tracking-wide",
-                active ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40" : "bg-white/8 text-muted-foreground hover:bg-white/12",
-              )}
-              aria-pressed={active}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {month ? (
-        <div className="mt-4 rounded-2xl bg-black/25 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">{month.title}</div>
-            <div className="tabular text-lg font-semibold text-emerald-300">{formatPeso(month.totalPhp)}</div>
+      {view === "month" ? (
+        <>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <div className="tabular text-3xl font-semibold">{formatPeso(lifetimeTotalPhp)}</div>
+              <div className="text-xs text-muted-foreground">Total Lifetime Earnings</div>
+            </div>
+            <Banknote className="size-8 text-amber-300/80" aria-hidden="true" />
           </div>
-          <dl className="mt-2 space-y-2 text-sm">
-            <Split label="Consumption Savings" value={formatPeso(month.consumptionSavingsPhp)} accent />
-            <Split label="Feed-In Earnings" value={formatPeso(month.feedInEarningsPhp)} />
-            <Split label="Total Earnings" value={formatPeso(month.totalPhp)} accent />
-            {month.chargedEnergyKwh != null ? <Split label="Charged Energy" value={`${formatKwh1(month.chargedEnergyKwh)} kWh`} /> : null}
-          </dl>
-        </div>
-      ) : null}
+          <div className="mt-4 flex items-end gap-2">
+            {monthly.map((item) => {
+              const height = Math.max(8, Math.round((item.totalPhp / maxMonth) * 72));
+              const active = item.period === monthPeriod;
+              return (
+                <button
+                  key={item.period}
+                  type="button"
+                  onClick={() => setSelectedMonth(item.period)}
+                  className="flex min-w-0 flex-1 flex-col items-center gap-1"
+                  aria-pressed={active}
+                  aria-label={`${item.title} ${formatPeso(item.totalPhp)}`}
+                >
+                  <span className={cn("w-full rounded-t-lg transition-colors", active ? "bg-emerald-400" : "bg-emerald-400/35")} style={{ height }} />
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {monthly.map((item) => {
+              const active = item.period === monthPeriod;
+              return (
+                <button
+                  key={`${item.period}-pill`}
+                  type="button"
+                  onClick={() => setSelectedMonth(item.period)}
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1 text-xs font-semibold tracking-wide",
+                    active ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40" : "bg-white/8 text-muted-foreground hover:bg-white/12",
+                  )}
+                  aria-pressed={active}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          {month ? (
+            <div className="mt-4 rounded-2xl bg-black/25 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">{month.title}</div>
+                <div className="tabular text-lg font-semibold text-emerald-300">{formatPeso(month.totalPhp)}</div>
+              </div>
+              <dl className="mt-2 space-y-2 text-sm">
+                <Split label="Consumption Savings" value={formatPeso(month.consumptionSavingsPhp)} accent />
+                <Split label="Feed-In Earnings" value={formatPeso(month.feedInEarningsPhp)} />
+                <Split label="Total Earnings" value={formatPeso(month.totalPhp)} accent />
+                {month.chargedEnergyKwh != null ? <Split label="Charged Energy" value={`${formatKwh1(month.chargedEnergyKwh)} kWh`} /> : null}
+              </dl>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {daily.length ? (
+            <div className="mt-1 flex items-end gap-1 overflow-x-auto pb-1">
+              {daily.map((item) => {
+                const height = Math.max(6, Math.round((item.totalPhp / maxDay) * 72));
+                const active = item.period === dayPeriod;
+                return (
+                  <button
+                    key={item.period}
+                    type="button"
+                    onClick={() => setSelectedDay(item.period)}
+                    className="flex w-6 shrink-0 flex-col items-center gap-1 sm:w-7"
+                    aria-pressed={active}
+                    aria-label={`${item.title} ${formatPeso(item.totalPhp)}`}
+                  >
+                    <span className={cn("w-full rounded-t-md transition-colors", active ? "bg-emerald-400" : "bg-emerald-400/35")} style={{ height }} />
+                    <span className={cn("text-[9px] tabular", active ? "text-emerald-300" : "text-muted-foreground")}>{Number(item.period.slice(8, 10))}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">Daily history will appear here once Deye Cloud day totals are available.</div>
+          )}
+          {day ? (
+            <div className="mt-4 rounded-2xl bg-black/25 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">{day.title}</div>
+                <div className="tabular text-lg font-semibold text-emerald-300">{formatPeso(day.totalPhp)}</div>
+              </div>
+              <dl className="mt-2 space-y-2 text-sm">
+                <Split label="Consumption Savings" value={formatPeso(day.consumptionSavingsPhp)} accent />
+                <Split label="Feed-In Earnings" value={formatPeso(day.feedInEarningsPhp)} />
+                <Split label="Total Earnings" value={formatPeso(day.totalPhp)} accent />
+                <Split label="Energy saved" value={`${formatKwh1(day.selfSuppliedKwh)} kWh`} />
+              </dl>
+            </div>
+          ) : null}
+          {daily.length ? (
+            <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto text-sm">
+              {[...daily].reverse().map((item) => {
+                const active = item.period === dayPeriod;
+                return (
+                  <li key={`${item.period}-row`}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDay(item.period)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2 text-left",
+                        active ? "bg-emerald-500/15 text-emerald-200" : "hover:bg-white/5",
+                      )}
+                    >
+                      <span>
+                        <span className="block font-medium text-foreground">{item.label}</span>
+                        <span className="text-[11px] text-muted-foreground">{formatKwh1(item.selfSuppliedKwh)} kWh saved</span>
+                      </span>
+                      <span className="tabular font-semibold text-emerald-300">{formatPeso(item.totalPhp)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </>
+      )}
     </CardShell>
   );
 }

@@ -1,7 +1,7 @@
 import { getConfig, saveDeyeStatus } from "@/lib/config";
 import { getDb } from "@/lib/db";
 import { catchUpDemo } from "@/lib/runtime";
-import { pullDeyeLatest, storeDeyeSample } from "@/lib/sync";
+import { ensureDeyeDailyHistory, pullDeyeLatest, storeDeyeSample } from "@/lib/sync";
 import { errorMessage } from "@/lib/utils";
 
 const globalForPoller = globalThis as unknown as { filosofoPoller?: boolean };
@@ -23,6 +23,11 @@ export function startPoller(): void {
           await storeDeyeSample(db, sample);
         } catch (error) {
           saveDeyeStatus(db, false, errorMessage(error));
+        }
+        try {
+          await ensureDeyeDailyHistory(db);
+        } catch (error) {
+          console.error("Deye daily history sync failed:", errorMessage(error));
         }
       }
     } catch (error) {

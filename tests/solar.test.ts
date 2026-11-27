@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { evaluateRules } from "@/lib/alerts";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
-import { parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
+import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
 import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleWindow, savingsPhp, selfConsumptionPct } from "@/lib/billing";
@@ -109,6 +109,24 @@ describe("Deye Cloud client", () => {
       ],
     });
     expect(points[0]).toMatchObject({ ts: 1_730_000_000_000, batterySoc: 70, pvW: 1500 });
+  });
+
+  it("reads daily load and discharge counters from device latest points", () => {
+    const daily = dailyEnergyFromDeye(
+      {
+        deviceDataList: [
+          {
+            dataList: [
+              { key: "DailyConsumption", value: "3.01" },
+              { key: "DailyDischargingEnergy", value: "3.01" },
+              { key: "DailyEnergy", value: "0" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(daily).toMatchObject({ loadKwh: 3.01, dischargeKwh: 3.01, productionKwh: 0 });
   });
 });
 
@@ -277,20 +295,27 @@ describe("stored telemetry", () => {
 describe("earnings", () => {
   const empty = { productionKwh: 0, loadKwh: 0, chargeKwh: 0, dischargeKwh: 0, importKwh: 0, exportKwh: 0, socClose: null };
 
-  it("prices today's self-consumption and leaves feed-in at the default zero rate", () => {
-    expect(selfConsumedKwh({ productionKwh: 10, exportKwh: 2, dischargeKwh: 1 })).toBe(8);
-    const earned = dayEarnings({ ...empty, productionKwh: 10, exportKwh: 2 }, 16.5, 0);
+  it("prices consumption savings from self-supplied load, not production", () => {
+    const earned = dayEarnings({ ...empty, loadKwh: 10, importKwh: 2, productionKwh: 0, exportKwh: 0 }, 16.5, 0);
+    expect(earned.selfSuppliedKwh).toBe(8);
     expect(earned.consumptionSavingsPhp).toBe(132);
     expect(earned.feedInEarningsPhp).toBe(0);
     expect(earned.totalPhp).toBe(132);
-    expect(dayEarnings({ ...empty, productionKwh: 18 }, 16.5).consumptionSavingsPhp).toBe(297);
   });
 
-  it("falls back to battery discharge when today's production is still 0 at night", () => {
-    const earned = dayEarnings({ ...empty, dischargeKwh: 5, loadKwh: 5 }, 16.5, 0);
-    expect(earned.selfConsumedKwh).toBe(5);
-    expect(earned.consumptionSavingsPhp).toBe(82.5);
-    expect(earned.totalPhp).toBe(82.5);
+  it("matches Deye Cloud nighttime battery savings of ₱49.61", () => {
+    const earned = dayEarnings({ ...empty, loadKwh: 49.61 / 16.5, importKwh: 0, productionKwh: 0 }, 16.5, 0);
+    expect(earned.consumptionSavingsPhp).toBe(49.61);
+    expect(earned.feedInEarningsPhp).toBe(0);
+    expect(earned.totalPhp).toBe(49.61);
+    expect(earned.selfSuppliedKwh).toBeCloseTo(49.61 / 16.5);
+  });
+
+  it("falls back to production minus export, then discharge, if load is missing", () => {
+    expect(selfConsumedKwh({ ...empty, productionKwh: 10, exportKwh: 2 })).toBe(8);
+    const fromDischarge = dayEarnings({ ...empty, dischargeKwh: 5 }, 16.5, 0);
+    expect(fromDischarge.selfSuppliedKwh).toBe(5);
+    expect(fromDischarge.consumptionSavingsPhp).toBe(82.5);
   });
 
   it("seeds John\'s verified Aug–Nov 2026 earnings and keeps the lifetime floor", () => {
@@ -307,6 +332,29 @@ describe("earnings", () => {
     expect(report.monthly[3]?.chargedEnergyKwh).toBe(549.5);
     expect(report.lifetimeTotalPhp).toBe(65568.22);
     expect(report.today.totalPhp).toBe(0);
+    expect(report.daily).toHaveLength(1);
+    expect(report.daily[0]?.period).toBe("2026-11-28");
+    expect(report.daily[0]?.totalPhp).toBe(0);
+  });
+
+  it("builds a day-by-day earnings history from official daily totals", () => {
+    const now = zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 3, minute: 56 }, "Asia/Manila");
+    const report = buildEarningsReport({
+      today: { ...empty, loadKwh: 49.61 / 16.5, importKwh: 0 },
+      now,
+      timeZone: "Asia/Manila",
+      tariffPhp: 16.5,
+      liveDays: {
+        "2026-11-26": { ...empty, loadKwh: 20, importKwh: 1 },
+        "2026-11-27": { ...empty, loadKwh: 22, importKwh: 0 },
+      },
+    });
+    expect(report.today.totalPhp).toBe(49.61);
+    expect(report.daily.map((day) => [day.period, day.totalPhp, day.selfSuppliedKwh])).toEqual([
+      ["2026-11-26", 313.5, 19],
+      ["2026-11-27", 363, 22],
+      ["2026-11-28", 49.61, 49.61 / 16.5],
+    ]);
   });
 
   it("lets the current month grow above the seeded November baseline", () => {

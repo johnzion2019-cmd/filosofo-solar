@@ -1,4 +1,4 @@
-import type { GridStatus, Sample } from "@/lib/types";
+import type { EnergyTotals, GridStatus, Sample } from "@/lib/types";
 import { deyePasswordField } from "@/lib/secrets";
 
 /**
@@ -114,6 +114,28 @@ const KEY_MAP: Record<string, string> = {
   dailyenergy: "dailyKwh",
   dailyproduction: "dailyKwh",
   todayenergy: "dailyKwh",
+  etoday: "dailyKwh",
+  dailyconsumption: "dailyLoadKwh",
+  dailyloadconsumption: "dailyLoadKwh",
+  dailylodconsumption: "dailyLoadKwh",
+  dailyload: "dailyLoadKwh",
+  todayconsumption: "dailyLoadKwh",
+  dailyloadenergy: "dailyLoadKwh",
+  dailydischargingenergy: "dailyDischargeKwh",
+  dailydischargeenergy: "dailyDischargeKwh",
+  dailydischarge: "dailyDischargeKwh",
+  dailydischarging: "dailyDischargeKwh",
+  dailychargingenergy: "dailyChargeKwh",
+  dailychargeenergy: "dailyChargeKwh",
+  dailycharge: "dailyChargeKwh",
+  dailycharging: "dailyChargeKwh",
+  dailyimport: "dailyImportKwh",
+  dailypurchase: "dailyImportKwh",
+  dailypurchasingenergy: "dailyImportKwh",
+  dailyexport: "dailyExportKwh",
+  dailysold: "dailyExportKwh",
+  dailysell: "dailyExportKwh",
+  dailygridfeedin: "dailyExportKwh",
   workmode: "mode",
   energypattern: "mode",
   runningstatus: "mode",
@@ -285,6 +307,34 @@ function gridStatusFrom(mapped: Record<string, number | string | null>, loadW: n
   if (["0", "false", "on", "ongrid", "no"].includes(offNorm) || statusNorm.includes("on")) return "on-grid";
   if (acV != null && acV < 50 && loadW > 50) return "off-grid";
   return "on-grid";
+}
+
+export function dailyEnergyFromDeye(deviceBody: unknown, stationBody: unknown): EnergyTotals | null {
+  const device = asArray(deviceBody, ["deviceDataList", "deviceList", "list"])[0];
+  const station = stationBody && typeof stationBody === "object" ? (stationBody as Record<string, unknown>) : null;
+  const mapped = device ? mapMeasurePoints(device.dataList) : {};
+  const pick = (...keys: string[]): number => {
+    for (const key of keys) {
+      const fromMap = mapped[key];
+      if (typeof fromMap === "number" && Number.isFinite(fromMap)) return Math.max(0, fromMap);
+      if (station) {
+        const fromStation = num(station[key]);
+        if (fromStation != null) return Math.max(0, fromStation);
+      }
+    }
+    return 0;
+  };
+  const totals: EnergyTotals = {
+    productionKwh: pick("dailyKwh", "generationValue"),
+    loadKwh: pick("dailyLoadKwh", "consumptionValue"),
+    chargeKwh: pick("dailyChargeKwh", "chargeValue"),
+    dischargeKwh: pick("dailyDischargeKwh", "dischargeValue"),
+    importKwh: pick("dailyImportKwh", "purchaseValue"),
+    exportKwh: pick("dailyExportKwh", "gridValue"),
+    socClose: typeof mapped.soc === "number" ? mapped.soc : num(station?.batterySOC ?? station?.batterySoc),
+  };
+  const hasEnergy = totals.productionKwh + totals.loadKwh + totals.chargeKwh + totals.dischargeKwh + totals.importKwh + totals.exportKwh > 0;
+  return hasEnergy ? totals : null;
 }
 
 export function deviceOnline(state: unknown, hasData: boolean): boolean {

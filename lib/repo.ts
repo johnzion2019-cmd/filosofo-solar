@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { mergeEnergyTotals } from "@/lib/integrate";
 import type { AlertDraft, AlertRuleId, DataSource, EnergyTotals, Sample } from "@/lib/types";
 
 export type AppDb = InstanceType<typeof Database>;
@@ -259,7 +260,20 @@ export function deleteSource(db: AppDb, source: DataSource): void {
   db.prepare("DELETE FROM alerts WHERE source = ?").run(source);
 }
 
+export function getEnergy(db: AppDb, source: DataSource, grain: "day" | "month", period: string): EnergyRow | null {
+  const row = db
+    .prepare(
+      `SELECT period, grain, source, production_kwh AS productionKwh, load_kwh AS loadKwh,
+              charge_kwh AS chargeKwh, discharge_kwh AS dischargeKwh, import_kwh AS importKwh,
+              export_kwh AS exportKwh, soc_close AS socClose
+       FROM energy WHERE source = ? AND grain = ? AND period = ?`,
+    )
+    .get(source, grain, period) as EnergyRow | undefined;
+  return row ?? null;
+}
+
 export function upsertEnergy(db: AppDb, source: DataSource, period: string, grain: "day" | "month", totals: EnergyTotals): void {
+  const merged = mergeEnergyTotals(totals, getEnergy(db, source, grain, period));
   db.prepare(
     `INSERT INTO energy (
       period, grain, source, production_kwh, load_kwh, charge_kwh, discharge_kwh, import_kwh, export_kwh, soc_close
@@ -276,13 +290,13 @@ export function upsertEnergy(db: AppDb, source: DataSource, period: string, grai
     period,
     grain,
     source,
-    totals.productionKwh,
-    totals.loadKwh,
-    totals.chargeKwh,
-    totals.dischargeKwh,
-    totals.importKwh,
-    totals.exportKwh,
-    totals.socClose,
+    merged.productionKwh,
+    merged.loadKwh,
+    merged.chargeKwh,
+    merged.dischargeKwh,
+    merged.importKwh,
+    merged.exportKwh,
+    merged.socClose,
   );
 }
 

@@ -1,5 +1,7 @@
 import { DEFAULT_TARIFF_PHP } from "@/lib/billing";
-import { emptyEnergy } from "@/lib/integrate";
+import { addEnergyTotals, emptyEnergy, mergeEnergyTotals } from "@/lib/integrate";
+
+export { addEnergyTotals, mergeEnergyTotals };
 import { zonedParts } from "@/lib/time";
 import type { EnergyTotals } from "@/lib/types";
 
@@ -34,11 +36,21 @@ export type DayEarnings = {
   totalPhp: number;
   consumptionSavingsPhp: number;
   feedInEarningsPhp: number;
+  selfSuppliedKwh: number;
   selfConsumedKwh: number;
+  loadKwh: number;
+  importKwh: number;
   exportKwh: number;
   productionKwh: number;
   tariffPhp: number;
   feedInRatePhp: number;
+};
+
+export type DailyEarnings = DayEarnings & {
+  period: string;
+  label: string;
+  title: string;
+  source: "live";
 };
 
 export type MonthlyEarnings = {
@@ -54,6 +66,7 @@ export type MonthlyEarnings = {
 
 export type EarningsReport = {
   today: DayEarnings;
+  daily: DailyEarnings[];
   monthly: MonthlyEarnings[];
   lifetimeTotalPhp: number;
 };
@@ -90,64 +103,70 @@ export function monthTitle(period: string): string {
   return `${name} ${year}`;
 }
 
-export function mergeEnergyTotals(primary: EnergyTotals, secondary?: EnergyTotals | null): EnergyTotals {
-  if (!secondary) return primary;
-  return {
-    productionKwh: Math.max(primary.productionKwh, secondary.productionKwh),
-    loadKwh: Math.max(primary.loadKwh, secondary.loadKwh),
-    chargeKwh: Math.max(primary.chargeKwh, secondary.chargeKwh),
-    dischargeKwh: Math.max(primary.dischargeKwh, secondary.dischargeKwh),
-    importKwh: Math.max(primary.importKwh, secondary.importKwh),
-    exportKwh: Math.max(primary.exportKwh, secondary.exportKwh),
-    socClose: primary.socClose ?? secondary.socClose,
-  };
+export function dayLabel(period: string): string {
+  const month = Number(period.slice(5, 7));
+  const day = Number(period.slice(8, 10));
+  const name = MONTH_LABELS[month - 1] ?? period;
+  return `${name} ${day}`;
 }
 
-export function addEnergyTotals(left: EnergyTotals, right: EnergyTotals): EnergyTotals {
-  return {
-    productionKwh: left.productionKwh + right.productionKwh,
-    loadKwh: left.loadKwh + right.loadKwh,
-    chargeKwh: left.chargeKwh + right.chargeKwh,
-    dischargeKwh: left.dischargeKwh + right.dischargeKwh,
-    importKwh: left.importKwh + right.importKwh,
-    exportKwh: left.exportKwh + right.exportKwh,
-    socClose: right.socClose ?? left.socClose,
-  };
+export function dayTitle(period: string): string {
+  const day = Number(period.slice(8, 10));
+  return `${monthTitle(period.slice(0, 7))} ${day}`;
 }
 
 /**
- * Solar energy used on-site (self-consumption).
- * When the inverter has produced today, this is production minus export.
- * At night / before first-light, if today's production is still 0, fall back to
- * battery discharge (stored solar being consumed) so Day earnings stay meaningful.
+ * Energy the home used today that did not come from the grid.
+ * Deye Cloud's Consumption Savings uses load minus import (battery/solar
+ * serving the house), which stays meaningful at night when production is 0.
+ * If load is missing, fall back to production minus export, then discharge.
  */
-export function selfConsumedKwh(energy: Pick<EnergyTotals, "productionKwh" | "exportKwh" | "dischargeKwh">): number {
+export function selfSuppliedKwh(energy: Pick<EnergyTotals, "productionKwh" | "exportKwh" | "dischargeKwh" | "loadKwh" | "importKwh">): number {
+  const load = Math.max(0, energy.loadKwh);
+  const imported = Math.max(0, energy.importKwh);
+  if (load > 0) return Math.max(0, load - imported);
   const production = Math.max(0, energy.productionKwh);
   const exported = Math.max(0, energy.exportKwh);
   if (production > 0) return Math.max(0, production - exported);
   return Math.max(0, energy.dischargeKwh);
 }
 
+/** @deprecated alias of selfSuppliedKwh */
+export const selfConsumedKwh = selfSuppliedKwh;
+
 export function dayEarnings(
   energy: EnergyTotals,
   tariffPhp: number = DEFAULT_TARIFF_PHP,
   feedInRatePhp: number = DEFAULT_FEED_IN_PHP,
 ): DayEarnings {
-  const selfConsumed = selfConsumedKwh(energy);
+  const supplied = selfSuppliedKwh(energy);
   const exported = Math.max(0, energy.exportKwh);
   const rate = Math.max(0, tariffPhp);
   const feedIn = Math.max(0, feedInRatePhp);
-  const consumptionSavingsPhp = roundPhp(selfConsumed * rate);
+  const consumptionSavingsPhp = roundPhp(supplied * rate);
   const feedInEarningsPhp = roundPhp(exported * feedIn);
   return {
     totalPhp: roundPhp(consumptionSavingsPhp + feedInEarningsPhp),
     consumptionSavingsPhp,
     feedInEarningsPhp,
-    selfConsumedKwh: selfConsumed,
+    selfSuppliedKwh: supplied,
+    selfConsumedKwh: supplied,
+    loadKwh: Math.max(0, energy.loadKwh),
+    importKwh: Math.max(0, energy.importKwh),
     exportKwh: exported,
     productionKwh: Math.max(0, energy.productionKwh),
     tariffPhp: rate,
     feedInRatePhp: feedIn,
+  };
+}
+
+export function toDailyEarnings(period: string, energy: EnergyTotals, tariffPhp: number, feedInRatePhp: number): DailyEarnings {
+  return {
+    period,
+    label: dayLabel(period),
+    title: dayTitle(period),
+    source: "live",
+    ...dayEarnings(energy, tariffPhp, feedInRatePhp),
   };
 }
 
@@ -208,15 +227,24 @@ export function buildEarningsReport(input: {
   now: number;
   timeZone?: string;
   liveMonths?: Record<string, EnergyTotals>;
+  liveDays?: Record<string, EnergyTotals>;
   /** When false (demo / unsynced), keep seeded history untouched. */
   accrueLiveMonths?: boolean;
 }): EarningsReport {
   const tariffPhp = input.tariffPhp ?? DEFAULT_TARIFF_PHP;
   const feedInRatePhp = input.feedInRatePhp ?? DEFAULT_FEED_IN_PHP;
+  const timeZone = input.timeZone ?? "Asia/Manila";
+  const todayYmd = zonedParts(input.now, timeZone).ymd;
+  const currentPeriod = todayYmd.slice(0, 7);
   const today = dayEarnings(input.today, tariffPhp, feedInRatePhp);
-  const currentPeriod = zonedParts(input.now, input.timeZone ?? "Asia/Manila").ymd.slice(0, 7);
   const accrueLive = input.accrueLiveMonths === true;
   const liveMonths = accrueLive ? (input.liveMonths ?? {}) : {};
+  const liveDays = input.liveDays ?? {};
+  const dailyPeriods = new Set([...Object.keys(liveDays), todayYmd]);
+  const daily = [...dailyPeriods]
+    .filter((period) => /^\d{4}-\d{2}-\d{2}$/.test(period) && period <= todayYmd)
+    .sort()
+    .map((period) => toDailyEarnings(period, period === todayYmd ? input.today : (liveDays[period] ?? emptyEnergy()), tariffPhp, feedInRatePhp));
   const periods = new Set([...SEEDED_MONTHLY_EARNINGS.map((month) => month.period), ...Object.keys(liveMonths), currentPeriod]);
   const monthly = [...periods]
     .filter((period) => /^\d{4}-\d{2}$/.test(period) && period <= currentPeriod)
@@ -233,5 +261,5 @@ export function buildEarningsReport(input: {
       return fromLive(period, emptyEnergy(), tariffPhp, feedInRatePhp);
     });
   const lifetimeTotalPhp = roundPhp(monthly.reduce((sum, month) => sum + month.totalPhp, 0));
-  return { today, monthly, lifetimeTotalPhp };
+  return { today, daily, monthly, lifetimeTotalPhp };
 }

@@ -48,3 +48,28 @@ export function emptyEnergy(): EnergyTotals {
     socClose: null,
   };
 }
+
+export function mergeEnergyTotals(primary: EnergyTotals, secondary?: EnergyTotals | null): EnergyTotals {
+  if (!secondary) return primary;
+  return {
+    productionKwh: Math.max(primary.productionKwh, secondary.productionKwh),
+    loadKwh: Math.max(primary.loadKwh, secondary.loadKwh),
+    chargeKwh: Math.max(primary.chargeKwh, secondary.chargeKwh),
+    dischargeKwh: Math.max(primary.dischargeKwh, secondary.dischargeKwh),
+    importKwh: Math.max(primary.importKwh, secondary.importKwh),
+    exportKwh: Math.max(primary.exportKwh, secondary.exportKwh),
+    socClose: primary.socClose ?? secondary.socClose,
+  };
+}
+
+export function addEnergyTotals(left: EnergyTotals, right: EnergyTotals): EnergyTotals {
+  return {
+    productionKwh: left.productionKwh + right.productionKwh,
+    loadKwh: left.loadKwh + right.loadKwh,
+    chargeKwh: left.chargeKwh + right.chargeKwh,
+    dischargeKwh: left.dischargeKwh + right.dischargeKwh,
+    importKwh: left.importKwh + right.importKwh,
+    exportKwh: left.exportKwh + right.exportKwh,
+    socClose: right.socClose ?? left.socClose,
+  };
+}

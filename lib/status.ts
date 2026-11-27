@@ -8,6 +8,7 @@ import { clockFor, resolveSource } from "@/lib/runtime";
 import { formatPlantClock, startOfZonedDay, zonedParts } from "@/lib/time";
 import type { AppDb } from "@/lib/repo";
 import type { DataSource, EnergyTotals, Sample } from "@/lib/types";
+import { ensureDeyeDailyHistory } from "@/lib/sync";
 import { fetchWeather } from "@/lib/weather";
 
 function clockNote(simulated: boolean, timeZone: string, now: number): string | null {
@@ -96,24 +97,39 @@ function liveMonthEnergy(
 export async function buildDashboard(db: AppDb) {
   const status = await buildStatus(db);
   const cfg = getConfig(db);
-  const today = status.live ? resolveTodayEnergy(db, status.mode, status.clockNow, cfg.timeZone) : emptyEnergy();
-  const todayYmd = zonedParts(status.clockNow, cfg.timeZone).ymd;
+  if (cfg.deyeConfigured) {
+    try {
+      await ensureDeyeDailyHistory(db);
+    } catch {
+      // Serve any cached daily totals if Deye history is briefly unavailable.
+    }
+  }
+  const energySource: DataSource = status.mode === "bridge" ? "bridge" : cfg.deyeConfigured ? "deye" : "demo";
+  const energyNow = energySource === "demo" ? status.clockNow : Date.now();
+  const today = status.live || energySource === "deye" ? resolveTodayEnergy(db, energySource, energyNow, cfg.timeZone) : emptyEnergy();
+  const todayYmd = zonedParts(energyNow, cfg.timeZone).ymd;
   const currentPeriod = todayYmd.slice(0, 7);
   const liveMonths: Record<string, EnergyTotals> = {};
   const monthPeriods = new Set<string>([currentPeriod]);
-  for (const row of energyRows(db, status.mode, "month", "2026-08")) monthPeriods.add(row.period);
-  for (const row of energyRows(db, status.mode, "day", "2026-08-01")) monthPeriods.add(row.period.slice(0, 7));
+  for (const row of energyRows(db, energySource, "month", "2026-08")) monthPeriods.add(row.period);
+  for (const row of energyRows(db, energySource, "day", "2026-08-01")) monthPeriods.add(row.period.slice(0, 7));
   for (const period of monthPeriods) {
-    liveMonths[period] = liveMonthEnergy(db, status.mode, period, todayYmd, today);
+    liveMonths[period] = liveMonthEnergy(db, energySource, period, todayYmd, today);
+  }
+  const liveDays: Record<string, EnergyTotals> = {};
+  const dailyFrom = zonedParts(energyNow - 31 * 86_400_000, cfg.timeZone).ymd;
+  for (const row of energyRows(db, energySource, "day", dailyFrom)) {
+    liveDays[row.period] = row;
   }
   const earnings = buildEarningsReport({
     today,
     tariffPhp: cfg.tariffPhp,
     feedInRatePhp: DEFAULT_FEED_IN_PHP,
-    now: status.clockNow,
+    now: energyNow,
     timeZone: cfg.timeZone,
     liveMonths,
-    accrueLiveMonths: status.mode === "deye",
+    liveDays,
+    accrueLiveMonths: energySource === "deye",
   });
   const cycle = cycleWindow(status.clockNow, cfg.timeZone, cfg.billingCycleStartDay);
   let cycleGenerated = 0;

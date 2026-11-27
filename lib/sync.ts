@@ -2,6 +2,7 @@ import { applySettings, getConfig, saveDeyeStatus, saveDeyeToken, type ResolvedC
 import {
   DeyeClient,
   DeyeError,
+  dailyEnergyFromDeye,
   parseDeviceHistory,
   parseStationHistory,
   sampleFromDeye,
@@ -58,6 +59,11 @@ export async function pullDeyeLatest(db: AppDb): Promise<Sample> {
   const deviceBody = cfg.inverterSn ? await client.deviceLatest(cfg.inverterSn) : null;
   const sample = sampleFromDeye(deviceBody, stationBody);
   if (sample.operatingMode === "—") sample.operatingMode = cfg.operatingMode;
+  const daily = dailyEnergyFromDeye(deviceBody, stationBody);
+  if (daily) {
+    const ymd = zonedParts(sample.ts, cfg.timeZone).ymd;
+    upsertEnergy(db, "deye", ymd, "day", daily);
+  }
   return sample;
 }
 
@@ -260,4 +266,74 @@ function insertEnergyRow(db: AppDb, row: ReturnType<typeof parseStationHistory>[
     exportKwh: row.exportKwh ?? 0,
     socClose: row.soc ?? null,
   });
+}
+
+const HISTORY_INTERVAL_MS = 12 * 60_000;
+
+type DailySyncState = { at: number; inflight?: Promise<{ days: number; months: number; skipped?: boolean }> };
+
+const globalForHistory = globalThis as unknown as { filosofoDailySync?: DailySyncState };
+
+async function resolveStationId(db: AppDb, cfg: ResolvedConfig, client: DeyeClient): Promise<string> {
+  if (cfg.deyeStationId) return cfg.deyeStationId;
+  const stations = await client.stationList();
+  if (stations.length === 1) {
+    const stationId = String(stations[0].id);
+    applySettings(db, { deyeStationId: stationId });
+    return stationId;
+  }
+  return "";
+}
+
+export async function syncDeyeEnergyHistory(db: AppDb): Promise<{ days: number; months: number }> {
+  const cfg = getConfig(db);
+  if (!cfg.deyeConfigured) throw new DeyeError("Deye Cloud credentials are not configured");
+  const client = clientFor(db, cfg);
+  const stationId = await resolveStationId(db, getConfig(db), client);
+  if (!stationId) return { days: 0, months: 0 };
+  const today = zonedParts(Date.now(), cfg.timeZone).ymd;
+  const start = zonedParts(Date.now() - 31 * 86_400_000, cfg.timeZone).ymd;
+  let days = 0;
+  const daily = await client.stationHistory(Number(stationId), 2, start, today);
+  for (const row of parseStationHistory(daily, 2).energy) {
+    insertEnergyRow(db, row);
+    days += 1;
+  }
+  let months = 0;
+  const monthStart = zonedParts(Date.now() - 370 * 86_400_000, cfg.timeZone).ymd.slice(0, 7);
+  const monthEnd = today.slice(0, 7);
+  const monthly = await client.stationHistory(Number(stationId), 3, monthStart, monthEnd);
+  for (const row of parseStationHistory(monthly, 3).energy) {
+    insertEnergyRow(db, row);
+    months += 1;
+  }
+  saveDeyeStatus(db, true, null);
+  return { days, months };
+}
+
+export async function ensureDeyeDailyHistory(
+  db: AppDb,
+  options?: { force?: boolean },
+): Promise<{ days: number; months: number; skipped?: boolean }> {
+  const cfg = getConfig(db);
+  if (!cfg.deyeConfigured) return { days: 0, months: 0, skipped: true };
+  const state = globalForHistory.filosofoDailySync ?? { at: 0 };
+  const now = Date.now();
+  if (!options?.force && state.at > 0 && now - state.at < HISTORY_INTERVAL_MS) {
+    return { days: 0, months: 0, skipped: true };
+  }
+  if (state.inflight) return state.inflight;
+  const inflight = (async () => {
+    try {
+      const result = await syncDeyeEnergyHistory(db);
+      state.at = Date.now();
+      return result;
+    } finally {
+      state.inflight = undefined;
+      globalForHistory.filosofoDailySync = state;
+    }
+  })();
+  state.inflight = inflight;
+  globalForHistory.filosofoDailySync = state;
+  return inflight;
 }
