@@ -238,7 +238,7 @@ export async function syncDeyeHistory(db: AppDb): Promise<{ snapshots: number; d
         snapshots = samples.length;
       }
     }
-    const start = zonedParts(Date.now() - 31 * 86_400_000, cfg.timeZone).ymd;
+    const start = zonedParts(Date.now() - 29 * 86_400_000, cfg.timeZone).ymd;
     const daily = await client.stationHistory(stationId, 2, start, today);
     for (const row of parseStationHistory(daily, 2).energy) {
       insertEnergyRow(db, row);
@@ -292,7 +292,8 @@ export async function syncDeyeEnergyHistory(db: AppDb): Promise<{ days: number; 
   const stationId = await resolveStationId(db, getConfig(db), client);
   if (!stationId) return { days: 0, months: 0 };
   const today = zonedParts(Date.now(), cfg.timeZone).ymd;
-  const start = zonedParts(Date.now() - 31 * 86_400_000, cfg.timeZone).ymd;
+  // Deye Cloud rejects inclusive windows longer than 31 days ("should be within 31 days").
+  const start = zonedParts(Date.now() - 29 * 86_400_000, cfg.timeZone).ymd;
   let days = 0;
   const daily = await client.stationHistory(Number(stationId), 2, start, today);
   for (const row of parseStationHistory(daily, 2).energy) {
@@ -300,12 +301,16 @@ export async function syncDeyeEnergyHistory(db: AppDb): Promise<{ days: number; 
     days += 1;
   }
   let months = 0;
-  const monthStart = zonedParts(Date.now() - 370 * 86_400_000, cfg.timeZone).ymd.slice(0, 7);
-  const monthEnd = today.slice(0, 7);
-  const monthly = await client.stationHistory(Number(stationId), 3, monthStart, monthEnd);
-  for (const row of parseStationHistory(monthly, 3).energy) {
-    insertEnergyRow(db, row);
-    months += 1;
+  try {
+    const monthStart = zonedParts(Date.now() - 370 * 86_400_000, cfg.timeZone).ymd.slice(0, 7);
+    const monthEnd = today.slice(0, 7);
+    const monthly = await client.stationHistory(Number(stationId), 3, monthStart, monthEnd);
+    for (const row of parseStationHistory(monthly, 3).energy) {
+      insertEnergyRow(db, row);
+      months += 1;
+    }
+  } catch (error) {
+    console.error("Deye monthly history sync failed:", error instanceof Error ? error.message : error);
   }
   saveDeyeStatus(db, true, null);
   return { days, months };
