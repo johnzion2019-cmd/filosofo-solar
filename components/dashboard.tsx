@@ -32,6 +32,7 @@ import { plantHeroPeriod, type HeroPeriod } from "@/lib/house-hero";
 import type { Payback } from "@/lib/payback";
 import type { PlantRecords } from "@/lib/records";
 import { formatAgo, formatKwh1, formatKw, formatPeso } from "@/lib/format";
+import { plantGreeting } from "@/lib/time";
 import type { Sample } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -63,13 +64,9 @@ function downloadCsv() {
 
 function useDashboardClock(timeZone: string) {
   const [now, setNow] = useState(() => new Date());
-  const [greeting, setGreeting] = useState("Hello");
   useEffect(() => {
     function tick() {
-      const date = new Date();
-      setNow(date);
-      const hour = date.getHours();
-      setGreeting(hour < 5 || hour >= 18 ? "Good Evening" : hour < 12 ? "Good Morning" : "Good Afternoon");
+      setNow(new Date());
     }
     tick();
     const timer = setInterval(tick, 1000);
@@ -82,6 +79,7 @@ function useDashboardClock(timeZone: string) {
     hour12: true,
   }).format(now);
   const zoneLabel = timeZone === "Asia/Manila" ? "PHT" : timeZone;
+  const greeting = plantGreeting(now.getTime(), timeZone);
   return { greeting, time, zoneLabel };
 }
 

@@ -103,6 +103,13 @@ export function addZonedDays(ts: number, timeZone: string, days: number): number
   );
 }
 
+export function plantGreeting(ts: number, timeZone = "Asia/Manila"): "Good Morning" | "Good Afternoon" | "Good Evening" {
+  const hour = zonedParts(ts, timeZone).hour;
+  if (hour < 5 || hour >= 18) return "Good Evening";
+  if (hour < 12) return "Good Morning";
+  return "Good Afternoon";
+}
+
 export function formatPlantClock(ts: number, timeZone: string): string {
   const time = new Intl.DateTimeFormat("en-US", {
     timeZone,

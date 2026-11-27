@@ -23,7 +23,7 @@ import { resolveSource } from "@/lib/runtime";
 import { decryptSecret, deyePasswordField, encryptSecret, hashDeyePassword, safeEqual } from "@/lib/secrets";
 import { sessionToken } from "@/lib/session";
 import { viewContext } from "@/lib/status";
-import { startOfZonedDay, zonedTimeToUtc } from "@/lib/time";
+import { plantGreeting, startOfZonedDay, zonedTimeToUtc } from "@/lib/time";
 import { PLANT_DEFAULTS, type Sample } from "@/lib/types";
 
 process.env.SETTINGS_SECRET = "unit-test-secret";
@@ -569,6 +569,26 @@ describe("solar payback", () => {
     expect(result.remainingPhp).toBe(0);
     expect(result.breakEvenLabel).toBe("Paid off");
     expect(result.breakEvenYmd).toBe("2026-11-28");
+  });
+});
+
+
+describe("plant greeting", () => {
+  it("uses the plant timezone, not the viewer's local clock", () => {
+    const at = (hour: number, minute = 0) =>
+      zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour, minute }, "Asia/Manila");
+    expect(plantGreeting(at(4, 59), "Asia/Manila")).toBe("Good Evening");
+    expect(plantGreeting(at(5, 0), "Asia/Manila")).toBe("Good Morning");
+    expect(plantGreeting(at(7, 20), "Asia/Manila")).toBe("Good Morning");
+    expect(plantGreeting(at(11, 59), "Asia/Manila")).toBe("Good Morning");
+    expect(plantGreeting(at(12, 0), "Asia/Manila")).toBe("Good Afternoon");
+    expect(plantGreeting(at(17, 59), "Asia/Manila")).toBe("Good Afternoon");
+    expect(plantGreeting(at(18, 0), "Asia/Manila")).toBe("Good Evening");
+
+    // 7:20 AM PHT is 3:20 PM the previous afternoon in Sparks, NV.
+    const morningInManila = zonedTimeToUtc({ year: 2026, month: 11, day: 27, hour: 7, minute: 20 }, "Asia/Manila");
+    expect(plantGreeting(morningInManila, "Asia/Manila")).toBe("Good Morning");
+    expect(plantGreeting(morningInManila, "America/Los_Angeles")).toBe("Good Afternoon");
   });
 });
 
