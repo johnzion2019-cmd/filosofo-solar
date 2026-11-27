@@ -590,15 +590,21 @@ function EarningsCard({ data }: { data: DashboardData }) {
 function PaybackCard({ payback }: { payback: Payback }) {
   const plant = usePlant();
   const [cost, setCost] = useState("");
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasCost = payback.systemCostPhp > 0;
   const paidOff = hasCost && payback.remainingPhp <= 0;
+  const showForm = !hasCost || editing;
 
-  async function saveCost(event: React.FormEvent) {
+  async function saveCost(event: React.FormEvent, nextValue?: number) {
     event.preventDefault();
-    const value = Number(cost.replace(/,/g, ""));
-    if (!Number.isFinite(value) || value <= 0) {
+    const value = nextValue ?? Number(cost.replace(/,/g, ""));
+    if (!Number.isFinite(value) || value < 0) {
+      setError("Enter your system install cost in pesos, or 0 to clear.");
+      return;
+    }
+    if (!hasCost && value <= 0) {
       setError("Enter your system install cost in pesos.");
       return;
     }
@@ -616,6 +622,7 @@ function PaybackCard({ payback }: { payback: Payback }) {
       return;
     }
     setCost("");
+    setEditing(false);
     await plant.reload();
   }
 
@@ -624,7 +631,7 @@ function PaybackCard({ payback }: { payback: Payback }) {
       <div className="text-[11px] font-semibold tracking-wide text-amber-300">SOLAR PAYBACK (ROI)</div>
       <div className="mt-2 text-xs text-muted-foreground">Total Saved So Far</div>
       <div className="tabular text-3xl font-semibold text-amber-100">{formatPeso(payback.totalSavedPhp)}</div>
-      {hasCost ? (
+      {hasCost && !showForm ? (
         <>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
             <div
@@ -632,33 +639,71 @@ function PaybackCard({ payback }: { payback: Payback }) {
               style={{ width: `${Math.min(100, payback.paidOffPct)}%` }}
             />
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-            <div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="min-w-0 rounded-2xl bg-black/25 px-3 py-3 text-center">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Paid Off</div>
-              <div className="tabular mt-1 text-lg font-semibold">{payback.paidOffPct.toFixed(1)}%</div>
+              <div className="tabular mt-1 text-lg font-semibold sm:text-xl">{payback.paidOffPct.toFixed(1)}%</div>
             </div>
-            <div>
+            <div className="min-w-0 rounded-2xl bg-black/25 px-3 py-3 text-center">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Remaining</div>
-              <div className="tabular mt-1 text-lg font-semibold">{formatPeso(payback.remainingPhp)}</div>
+              <div className="tabular mt-1 break-words text-base font-semibold leading-snug sm:text-lg">{formatPeso(payback.remainingPhp)}</div>
             </div>
-            <div>
+            <div className="col-span-2 min-w-0 rounded-2xl bg-black/25 px-3 py-3 text-center sm:col-span-1">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Est. Break-Even</div>
-              <div className="mt-1 text-sm font-semibold">{paidOff ? "Paid off" : payback.breakEvenLabel ?? "—"}</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold sm:text-lg">{paidOff ? "Paid off" : payback.breakEvenLabel ?? "—"}</div>
             </div>
           </div>
+          <button
+            type="button"
+            className="mt-3 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={() => {
+              setCost(String(payback.systemCostPhp));
+              setEditing(true);
+              setError(null);
+            }}
+          >
+            Edit install cost
+          </button>
         </>
       ) : (
         <form className="mt-3 space-y-2" onSubmit={(event) => void saveCost(event)}>
-          <p className="text-sm text-muted-foreground">Enter your system install cost (₱) to track payback</p>
-          <div className="flex gap-2">
+          <p className="text-sm text-muted-foreground">
+            {hasCost ? "Update or clear your system install cost (₱)" : "Enter your system install cost (₱) to track payback"}
+          </p>
+          <div className="flex flex-wrap gap-2">
             <Input
               inputMode="decimal"
-              placeholder="e.g. 850000"
+              placeholder="e.g. 630000"
               value={cost}
               onChange={(event) => setCost(event.target.value)}
               aria-label="System install cost in pesos"
+              className="min-w-0 flex-1"
             />
             <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+            {hasCost ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={(event) => void saveCost(event, 0)}
+              >
+                Clear
+              </Button>
+            ) : null}
+            {editing ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(false);
+                  setCost("");
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            ) : null}
           </div>
           {error ? <p className="text-xs text-rose-200">{error}</p> : null}
         </form>

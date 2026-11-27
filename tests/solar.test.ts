@@ -4,6 +4,7 @@ import path from "path";
 import { afterAll, describe, expect, it } from "vitest";
 import { evaluateRules } from "@/lib/alerts";
 import { estimateBatteryRuntime } from "@/lib/battery";
+import { applySettings, ensureDefaults } from "@/lib/config";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
 import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
@@ -310,7 +311,7 @@ describe("stored telemetry", () => {
     expect(view.cfg.batteryKwh).toBe(16);
     expect(view.cfg.billingCycleStartDay).toBe(30);
     expect(view.cfg.batteryReserveSoc).toBe(20);
-    expect(view.cfg.systemCostPhp).toBe(0);
+    expect(view.cfg.systemCostPhp).toBe(630000);
     expect(view.live?.online).toBe(true);
     expect(view.live?.pvW ?? 0).toBeGreaterThan(400);
     expect(view.live?.loadW ?? 0).toBeGreaterThan(150);
@@ -328,6 +329,18 @@ describe("stored telemetry", () => {
     expect(formatPowerParts(1010)).toEqual({ value: "1.01", unit: "kW" });
     expect(formatPowerParts(0, true)).toEqual({ value: "0", unit: "kW" });
     expect(resolveSource(view.cfg, { demo: view.live, deye: null, bridge: null }, Date.now())).toBe("demo");
+  });
+
+  it("lets the baked-in ₱630,000 install cost be changed or cleared", () => {
+    expect(viewContext(db).cfg.systemCostPhp).toBe(630000);
+    applySettings(db, { systemCostPhp: 0 });
+    expect(viewContext(db).cfg.systemCostPhp).toBe(0);
+    ensureDefaults(db);
+    expect(viewContext(db).cfg.systemCostPhp).toBe(0);
+    applySettings(db, { systemCostPhp: 750000 });
+    expect(viewContext(db).cfg.systemCostPhp).toBe(750000);
+    applySettings(db, { systemCostPhp: 630000 });
+    expect(viewContext(db).cfg.systemCostPhp).toBe(630000);
   });
 });
 

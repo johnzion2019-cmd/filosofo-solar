@@ -1,5 +1,7 @@
 import { clampCycleStartDay, DEFAULT_CYCLE_START_DAY, DEFAULT_DAILY_TARGET_KWH, DEFAULT_TARIFF_PHP } from "@/lib/billing";
 import { DEFAULT_BATTERY_RESERVE_SOC } from "@/lib/battery";
+
+export const DEFAULT_SYSTEM_COST_PHP = 630_000;
 import type { DeyeRegion } from "@/lib/deye";
 import { getSetting, setSetting, type AppDb } from "@/lib/repo";
 import { decryptSecret, encryptSecret, newIngestKey } from "@/lib/secrets";
@@ -92,13 +94,21 @@ export function ensureDefaults(db: AppDb): void {
     billing_cycle_start_day: String(DEFAULT_CYCLE_START_DAY),
     daily_target_kwh: String(DEFAULT_DAILY_TARGET_KWH),
     battery_reserve_soc: String(DEFAULT_BATTERY_RESERVE_SOC),
-    system_cost_php: "0",
+    system_cost_php: String(DEFAULT_SYSTEM_COST_PHP),
   };
   const insert = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
   const tx = db.transaction(() => {
     for (const [key, value] of Object.entries(defaults)) insert.run(key, value);
     if (!env("INGEST_API_KEY") && !getSetting(db, "ingest_api_key")) {
       writeRaw(db, "ingest_api_key", newIngestKey());
+    }
+    // Upgrade the previous unset default of 0 once, without blocking a later user clear.
+    if (getSetting(db, "system_cost_php_v2") == null) {
+      const current = getSetting(db, "system_cost_php");
+      if (current == null || current.trim() === "" || current === "0") {
+        setSetting(db, "system_cost_php", String(DEFAULT_SYSTEM_COST_PHP));
+      }
+      setSetting(db, "system_cost_php_v2", "1");
     }
   });
   tx();
@@ -144,7 +154,7 @@ export function getConfig(db: AppDb): ResolvedConfig {
     billingCycleStartDay: clampCycleStartDay(num(pick("billingCycleStartDay", "billing_cycle_start_day", "", String(DEFAULT_CYCLE_START_DAY)), DEFAULT_CYCLE_START_DAY)),
     dailyTargetKwh: Math.max(1, num(pick("dailyTargetKwh", "daily_target_kwh", "", String(DEFAULT_DAILY_TARGET_KWH)), DEFAULT_DAILY_TARGET_KWH)),
     batteryReserveSoc: Math.min(90, Math.max(0, num(pick("batteryReserveSoc", "battery_reserve_soc", "", String(DEFAULT_BATTERY_RESERVE_SOC)), DEFAULT_BATTERY_RESERVE_SOC))),
-    systemCostPhp: Math.max(0, num(pick("systemCostPhp", "system_cost_php", "", "0"), 0)),
+    systemCostPhp: Math.max(0, num(pick("systemCostPhp", "system_cost_php", "", String(DEFAULT_SYSTEM_COST_PHP)), DEFAULT_SYSTEM_COST_PHP)),
     housePhotoCustom: readRaw(db, "house_photo") === "custom",
     deyeRegion: region,
     deyeBaseUrl: pick("deyeBaseUrl", "deye_base_url", "DEYE_BASE_URL"),
