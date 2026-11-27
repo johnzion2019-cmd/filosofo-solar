@@ -1,0 +1,426 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Battery,
+  Check,
+  House,
+  LifeBuoy,
+  LogOut,
+  RefreshCw,
+  Settings,
+  SunMedium,
+  Thermometer,
+  Zap,
+} from "lucide-react";
+import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { usePlant } from "@/components/plant-context";
+import { Button } from "@/components/ui/button";
+import type { DashboardData } from "@/components/models";
+import { formatAgo, formatKwh1, formatKw, formatPeso } from "@/lib/format";
+import type { Sample } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+function useManilaClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const hourText = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "numeric", hourCycle: "h23" }).format(now);
+  let hour = Number(hourText);
+  if (hour === 24) hour = 0;
+  const greeting = hour < 5 ? "Good Evening" : hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
+  const time = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(now);
+  return { greeting, time };
+}
+
+export function DashboardView() {
+  const { data, error, loading, reload, receivedAt } = usePlant();
+  const clock = useManilaClock();
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+  void tick;
+
+  if (loading && !data) return <div className="mx-auto h-[70vh] max-w-xl animate-pulse rounded-3xl bg-white/5" />;
+  if (error && !data) {
+    return (
+      <div className="mx-auto max-w-xl rounded-3xl border border-border p-6">
+        <p className="text-sm">The plant overview didn’t load. {error}</p>
+        <Button className="mt-3" onClick={() => void reload()}>Try again</Button>
+      </div>
+    );
+  }
+  if (!data?.live || !data.today || !data.cycle) {
+    return <div className="mx-auto max-w-xl rounded-3xl border border-border p-6 text-sm text-muted-foreground">Waiting for the first reading from inverter {data?.inverter.serial ?? "2508073177"}.</div>;
+  }
+
+  const ago = data.updatedAt != null ? formatAgo(data.updatedAt, data.clockNow + (Date.now() - receivedAt)) : "waiting";
+  const liveLabel = data.mode === "demo" ? "DEMO" : "LIVE";
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-3 lg:max-w-5xl">
+      <header className="px-1">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{clock.greeting}</h1>
+          <div className="flex items-center gap-2 text-sm">
+            <Link href="/settings" className="grid size-9 place-items-center rounded-full bg-white/8 hover:bg-white/15" aria-label="Settings">
+              <Settings className="size-4" />
+            </Link>
+            <button type="button" className="grid size-9 place-items-center rounded-full bg-white/8 hover:bg-white/15" aria-label="Refresh" onClick={() => void reload()}>
+              <RefreshCw className="size-4" />
+            </button>
+            <span className="tabular hidden text-sm font-medium sm:inline">{clock.time}</span>
+            {data.pinEnabled ? (
+              <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => void signOut()}>
+                <LogOut className="size-3.5" /> Sign Out
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/80">
+          <SunMedium className="size-3.5 text-amber-300" />
+          <span className="font-semibold tracking-wide">{data.plant.name.toUpperCase()}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 font-semibold text-emerald-300">
+            <span className="size-1.5 rounded-full bg-emerald-400" />
+            {liveLabel}
+          </span>
+          <span className="text-muted-foreground">· {ago}</span>
+          <span className="sm:hidden tabular">{clock.time}</span>
+          {data.weather ? <span className="text-muted-foreground">{data.weather.tempF.toFixed(0)}°F · {data.weather.label}</span> : <span className="text-muted-foreground">{data.plant.location}</span>}
+        </div>
+      </header>
+
+      <HouseHero live={data.live} photo={data.housePhotoUrl} />
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+        <EnergySummary data={data} />
+        <BatteryCard data={data} />
+        <StringsCard data={data} />
+        <ProductionGauge data={data} />
+        <div className="flex flex-col gap-3">
+          <SolarLoadChart data={data} />
+          <BatteryChart data={data} />
+        </div>
+        <div className="flex flex-col gap-3">
+          <SavingsCard data={data} />
+          <BillCard data={data} />
+        </div>
+        <div className="lg:col-span-2">
+          <HealthCard data={data} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardShell({ title, aside, children, className }: { title?: string; aside?: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <section className={cn("rounded-3xl border border-white/10 bg-[#121a2b]/90 p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]", className)}>
+      {title ? (
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">{title}</h2>
+          {aside ? <span className="text-xs text-muted-foreground">{aside}</span> : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
+function HouseHero({ live, photo }: { live: Sample; photo: string }) {
+  const ups = live.upsW > 0 ? live.upsW : live.source === "demo" ? Math.min(45, Math.max(10, live.loadW * 0.02)) : live.upsW;
+  const home = Math.max(0, live.loadW - ups);
+  const off = live.gridStatus === "off-grid";
+  return (
+    <section className="relative overflow-hidden rounded-3xl border border-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.28)]">
+      <div className="relative aspect-[4/3] w-full">
+        <Image src={photo} alt="Filosofo house in Negros Oriental" fill priority unoptimized className="object-cover object-center" />
+      </div>
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/5 to-black/40" />
+      <svg viewBox="0 0 360 240" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+        <path d="M150 58 C 150 110, 168 140, 176 168" fill="none" stroke="#f5d76e" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        <path d="M78 188 C 110 188, 140 180, 168 172" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+      </svg>
+      <FlowNode align="center" className="left-1/2 top-[6%]" icon={<SunMedium className="size-4 text-amber-200" />} tone="bg-amber-400/25" label="PV Array" value={formatKw(live.pvW)} />
+      <FlowNode align="end" className="right-3 top-[14%]" icon={<Zap className="size-4 text-amber-200" />} tone="bg-amber-300/20" label="Grid" value={formatKw(Math.abs(live.gridW))} badge={off ? "Off-grid" : undefined} />
+      <FlowNode align="start" className="bottom-[8%] left-3" icon={<Battery className="size-4 text-emerald-300" />} tone="bg-emerald-400/25" label="Battery" value={`${formatKw(Math.abs(live.batteryW))} · ${live.batterySoc.toFixed(0)}%`} />
+      <FlowNode align="center" className="bottom-[10%] left-1/2" icon={<House className="size-4 text-emerald-200" />} tone="bg-emerald-500/30" label="Home" value={formatKw(home)} />
+      <FlowNode align="end" className="bottom-[8%] right-3" icon={<LifeBuoy className="size-4 text-violet-200" />} tone="bg-violet-500/35" label="UPS Load" value={formatKw(ups)} />
+    </section>
+  );
+}
+
+function FlowNode({ align, className, icon, tone, label, value, badge }: { align: "start" | "center" | "end"; className: string; icon: React.ReactNode; tone: string; label: string; value: string; badge?: string }) {
+  return (
+    <div className={cn("absolute flex max-w-[42%] flex-col text-center", align === "center" && "left-1/2 -translate-x-1/2 items-center", align === "start" && "items-start text-left", align === "end" && "items-end text-right", className)}>
+      <span className={cn("grid size-9 place-items-center rounded-full border border-white/40 shadow-lg backdrop-blur-md", tone)}>{icon}</span>
+      <span className="mt-1 rounded-xl border border-white/25 bg-black/80 px-2 py-1 text-[10px] font-medium leading-tight text-white shadow-[0_4px_14px_rgba(0,0,0,0.55)] backdrop-blur-sm">
+        {label}
+        <span className="tabular mt-0.5 block text-xs font-semibold">{value}</span>
+      </span>
+      {badge ? <span className="mt-0.5 rounded-full bg-rose-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white">{badge}</span> : null}
+    </div>
+  );
+}
+
+function EnergySummary({ data }: { data: DashboardData }) {
+  const tiles = [
+    { icon: <SunMedium className="size-4 text-amber-300" />, label: "Generation", value: formatKwh1(data.today.productionKwh) },
+    { icon: <Battery className="size-4 text-emerald-300" />, label: "To Battery", value: formatKwh1(data.today.chargeKwh) },
+    { icon: <House className="size-4 text-orange-300" />, label: "Consumption", value: formatKwh1(data.directKwh) },
+    { icon: <House className="size-4 text-sky-300" />, label: "Total Consumption", value: formatKwh1(data.today.loadKwh) },
+    { icon: <ArrowDownToLine className="size-4 text-sky-300" />, label: "Import", value: formatKwh1(data.today.importKwh) },
+    { icon: <ArrowUpFromLine className="size-4 text-violet-300" />, label: "Export", value: formatKwh1(data.today.exportKwh) },
+  ];
+  return (
+    <CardShell title="Energy Summary" aside="Today">
+      <div className="grid grid-cols-3 gap-3">
+        {tiles.map((tile) => (
+          <div key={tile.label} className="text-center">
+            <div className="mx-auto mb-1 grid size-8 place-items-center rounded-full bg-white/5">{tile.icon}</div>
+            <div className="tabular text-lg font-semibold leading-none">{tile.value}</div>
+            <div className="text-[10px] text-muted-foreground">kWh</div>
+            <div className="mt-1 text-[11px] text-white/70">{tile.label}</div>
+          </div>
+        ))}
+      </div>
+    </CardShell>
+  );
+}
+
+function BatteryCard({ data }: { data: DashboardData }) {
+  const live = data.live!;
+  const stored = (live.batterySoc / 100) * data.inverter.batteryKwh;
+  const charging = live.batteryW < -15;
+  return (
+    <CardShell title="Battery Details">
+      <div className="flex items-center gap-4">
+        <div className="relative h-36 w-[4.5rem] shrink-0">
+          <div className="absolute left-1/2 top-0 h-2 w-6 -translate-x-1/2 rounded-t-md bg-emerald-400" />
+          <div className="absolute inset-x-0 bottom-0 top-2 overflow-hidden rounded-2xl border-2 border-emerald-400 bg-black/40">
+            <div className="absolute inset-x-1 bottom-1 rounded-xl bg-emerald-400 transition-[height] duration-700" style={{ height: `${Math.max(6, Math.min(100, live.batterySoc))}%` }} />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="tabular text-4xl font-semibold leading-none text-white">{live.batterySoc.toFixed(0)}%</div>
+          <div className="mt-1 text-sm text-emerald-300">{formatKwh1(stored)} kWh <span className="text-muted-foreground">of {formatKwh1(data.inverter.batteryKwh)} kWh</span></div>
+          <dl className="mt-3 space-y-1.5 text-sm">
+            <Row icon={<Zap className="size-3.5 text-amber-300" />} label={charging ? "Charging" : "Discharging"} value={formatKw(Math.abs(live.batteryW))} />
+            <Row icon={<Zap className="size-3.5 text-sky-300" />} label="Voltage" value={live.batteryV != null ? `${live.batteryV.toFixed(2)} V` : "—"} />
+            <Row icon={<span className="text-xs text-sky-300">∿</span>} label="Current" value={live.batteryA != null ? `${Math.abs(live.batteryA).toFixed(2)} A` : "—"} />
+            <Row icon={<Thermometer className="size-3.5 text-rose-300" />} label="Temp" value={live.batteryTemp != null ? `${live.batteryTemp.toFixed(2)} °C` : "—"} />
+          </dl>
+        </div>
+      </div>
+    </CardShell>
+  );
+}
+
+function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="inline-flex items-center gap-2 text-muted-foreground">{icon}{label}</dt>
+      <dd className="tabular font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function StringsCard({ data }: { data: DashboardData }) {
+  const live = data.live!;
+  const peakTime = new Intl.DateTimeFormat("en-US", { timeZone: data.plant.timeZone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(data.peak.ts));
+  return (
+    <div className="flex flex-col gap-3">
+      <CardShell title="Solar Strings">
+        <div className="grid grid-cols-2 gap-3">
+          <StringTile name="PV1" watts={live.pv1W} volts={live.pv1V} amps={live.pv1A} />
+          <StringTile name="PV2" watts={live.pv2W} volts={live.pv2V} amps={live.pv2A} />
+        </div>
+      </CardShell>
+      <div className="grid grid-cols-2 gap-3">
+        <CardShell>
+          <div className="text-xs text-muted-foreground">Peak Solar</div>
+          <div className="tabular mt-1 text-2xl font-semibold">{(data.peak.w / 1000).toFixed(1)} kW</div>
+          <div className="text-xs text-muted-foreground">{data.peak.w > 0 ? peakTime : "No sun yet"}</div>
+        </CardShell>
+        <CardShell>
+          <div className="text-xs text-muted-foreground">CO₂ Avoided</div>
+          <div className="tabular mt-1 text-2xl font-semibold">{data.co2Kg.toFixed(1)} kg</div>
+          <div className="text-xs text-muted-foreground">From today’s generation</div>
+        </CardShell>
+      </div>
+    </div>
+  );
+}
+
+function StringTile({ name, watts, volts, amps }: { name: string; watts: number | null; volts: number | null; amps: number | null }) {
+  return (
+    <div className="rounded-2xl bg-black/25 p-3">
+      <div className="text-xs text-muted-foreground">{name}</div>
+      <div className="tabular text-xl font-semibold">{watts != null ? formatKw(watts) : "—"}</div>
+      <div className="text-[11px] text-muted-foreground">
+        {volts != null ? `${volts.toFixed(1)} V` : "—"} · {amps != null ? `${amps.toFixed(2)} A` : "—"}
+      </div>
+    </div>
+  );
+}
+
+function ProductionGauge({ data }: { data: DashboardData }) {
+  const pct = Math.max(0, Math.min(1, data.dailyTargetKwh > 0 ? data.today.productionKwh / data.dailyTargetKwh : 0));
+  const radius = 78;
+  const length = Math.PI * radius;
+  return (
+    <CardShell>
+      <div className="relative mx-auto h-36 w-64">
+        <svg viewBox="0 0 200 120" className="h-full w-full">
+          <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="14" strokeLinecap="round" />
+          <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#3dd68c" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${length * pct} ${length}`} />
+        </svg>
+        <div className="absolute inset-x-0 bottom-2 text-center">
+          <div className="tabular text-3xl font-semibold">{formatKwh1(data.today.productionKwh)} kWh</div>
+          <div className="text-xs text-muted-foreground">/ {formatKwh1(data.dailyTargetKwh)} kWh target</div>
+        </div>
+      </div>
+      <dl className="mt-2 space-y-2 text-sm">
+        <Split label="Self Consumption" value={`${data.selfConsumptionPct.toFixed(0)}%`} />
+        <Split label="To Battery" value={`${formatKwh1(data.today.chargeKwh)} kWh`} />
+        <Split label="Grid Import" value={`${formatKwh1(data.today.importKwh)} kWh`} />
+        <Split label="Estimated Savings" value={formatPeso(data.todaySavingsPhp)} accent />
+      </dl>
+    </CardShell>
+  );
+}
+
+function Split({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={cn("tabular font-medium", accent && "text-emerald-300")}>{value}</dd>
+    </div>
+  );
+}
+
+function SolarLoadChart({ data }: { data: DashboardData }) {
+  const last = data.series[data.series.length - 1];
+  return (
+    <CardShell title="Solar vs Load (Today)" aside={last ? `Solar ${last.solarKw.toFixed(2)} · Load ${last.loadKw.toFixed(2)} kW` : undefined}>
+      <div className="h-44">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="rgba(148,176,220,0.12)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#93a0bd", fontSize: 10 }} minTickGap={28} />
+            <YAxis tick={{ fill: "#93a0bd", fontSize: 10 }} width={28} />
+            <Tooltip contentStyle={{ background: "#101826", border: "1px solid rgba(148,176,220,0.2)", borderRadius: 12 }} formatter={(value, name) => [`${Number(value).toFixed(2)} kW`, name]} />
+            <Line type="monotone" dataKey="solarKw" name="Solar" stroke="#3dd68c" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="loadKw" name="House Load" stroke="#fb7185" strokeWidth={2} dot={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </CardShell>
+  );
+}
+
+function BatteryChart({ data }: { data: DashboardData }) {
+  return (
+    <CardShell title="Battery (24h)">
+      <div className="h-40">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="rgba(148,176,220,0.12)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#93a0bd", fontSize: 10 }} minTickGap={28} />
+            <YAxis domain={[0, 100]} tick={{ fill: "#93a0bd", fontSize: 10 }} width={28} />
+            <Tooltip contentStyle={{ background: "#101826", border: "1px solid rgba(148,176,220,0.2)", borderRadius: 12 }} formatter={(value) => [`${Number(value).toFixed(0)}%`, "SOC"]} />
+            <Area type="monotone" dataKey="soc" name="SOC" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.25} strokeWidth={2} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </CardShell>
+  );
+}
+
+function Progress({ pct }: { pct: number }) {
+  const width = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="mt-3">
+      <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${width}%` }} />
+      </div>
+      <div className="mt-2 flex gap-1">
+        {Array.from({ length: 12 }, (_, index) => (
+          <span key={index} className={cn("h-1.5 flex-1 rounded-full", index / 12 < width / 100 ? "bg-emerald-400" : "bg-white/15")} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SavingsCard({ data }: { data: DashboardData }) {
+  return (
+    <CardShell>
+      <div className="text-[11px] font-semibold tracking-wide text-amber-300">MONTHLY SAVINGS</div>
+      <div className="mt-1 text-right text-[11px] text-muted-foreground">{data.cycle.label} · {formatPeso(data.cycle.tariffPhp)}/kWh</div>
+      <div className="tabular text-3xl font-semibold">{formatPeso(data.cycle.savingsPhp)}</div>
+      <div className="text-xs text-muted-foreground">{formatKwh1(data.cycle.generatedKwh)} kWh generated since cycle start</div>
+      <Progress pct={data.cycle.progressPct} />
+    </CardShell>
+  );
+}
+
+function BillCard({ data }: { data: DashboardData }) {
+  return (
+    <CardShell>
+      <div className="text-[11px] font-semibold tracking-wide text-amber-300">EST. BILL</div>
+      <div className="mt-1 text-right text-[11px] text-muted-foreground">{data.cycle.label} · {formatPeso(data.cycle.tariffPhp)}/kWh</div>
+      <div className="tabular text-3xl font-semibold">{formatPeso(data.cycle.billPhp)}</div>
+      <div className="text-xs text-muted-foreground">{formatKwh1(data.cycle.importKwh)} kWh import · {data.cycle.daysElapsed} days</div>
+      <div className="mt-1 text-xs text-orange-300">Prediction: {formatPeso(data.cycle.projectedBillPhp)} (avg {data.cycle.avgImportKwhPerDay.toFixed(1)} kWh/day)</div>
+      <Progress pct={data.cycle.progressPct} />
+    </CardShell>
+  );
+}
+
+function HealthCard({ data }: { data: DashboardData }) {
+  const live = data.live!;
+  const healthy = live.online && data.unreadAlerts === 0 && !(data.mode === "deye" && data.deyeLastError);
+  const connection = data.mode === "deye" ? (data.deyeLastError ? "Needs a check" : "Connected") : data.mode === "bridge" ? "Local bridge" : "Demo feed";
+  const updated = new Intl.DateTimeFormat("en-US", { timeZone: data.plant.timeZone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(data.updatedAt ?? Date.now()));
+  return (
+    <CardShell title="System Health" aside={<span className={healthy ? "text-emerald-300" : "text-amber-200"}>{healthy ? "All systems normal" : "Needs attention"}</span>}>
+      <ul className="space-y-2 text-sm">
+        <HealthRow ok={live.online} label={`Deye Inverter · ${(data.inverter.ratedW / 1000).toFixed(1)} kW`} detail={formatKw(live.loadW) + " load"} />
+        <HealthRow ok={live.batteryTemp == null || live.batteryTemp < 55} label={`Battery · ${formatKwh1(data.inverter.batteryKwh)} kWh`} detail={`${live.batterySoc.toFixed(0)}% · ${live.batteryTemp != null ? `${live.batteryTemp.toFixed(1)}°C` : "—"}`} />
+        <HealthRow ok label={`Solar PV · ${(data.inverter.ratedW / 1000).toFixed(2)} kWp`} detail={formatKw(live.pvW)} />
+        <HealthRow ok={connection !== "Needs a check"} label="Deye Connection" detail={connection} />
+      </ul>
+      <div className="mt-3 text-right text-[11px] text-muted-foreground">Updated {updated}</div>
+    </CardShell>
+  );
+}
+
+function HealthRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+  return (
+    <li className="flex items-center justify-between gap-3">
+      <span className="inline-flex items-center gap-2">
+        <Check className={cn("size-4", ok ? "text-emerald-400" : "text-amber-300")} />
+        {label}
+      </span>
+      <span className="tabular text-xs text-muted-foreground">{detail}</span>
+    </li>
+  );
+}

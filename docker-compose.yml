@@ -1,0 +1,22 @@
+services:
+  filosofo:
+    build: .
+    ports:
+      - "38471:10000"
+    environment:
+      PORT: "10000"
+      DATABASE_PATH: /data/filosofo.sqlite
+      SETTINGS_SECRET: ${SETTINGS_SECRET:-change-me-before-sharing}
+      APP_PIN: ${APP_PIN:-}
+      DEYE_REGION: ${DEYE_REGION:-eu}
+      DEYE_APP_ID: ${DEYE_APP_ID:-}
+      DEYE_APP_SECRET: ${DEYE_APP_SECRET:-}
+      DEYE_EMAIL: ${DEYE_EMAIL:-}
+      DEYE_PASSWORD: ${DEYE_PASSWORD:-}
+      DEYE_DEVICE_SN: ${DEYE_DEVICE_SN:-2508073177}
+      INGEST_API_KEY: ${INGEST_API_KEY:-}
+    volumes:
+      - filosofo-data:/data
+
+volumes:
+  filosofo-data:
