@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Bell, ChartColumn, Check, ChevronLeft, Cpu, LayoutDashboard, MapPin, MoreHorizontal, Settings, SunMedium } from "lucide-react";
 import { usePlant } from "@/components/plant-context";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { formatAgo, sourceLabel } from "@/lib/format";
@@ -46,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
       <div className={cn("min-w-0 flex-1", home ? "pb-20 md:pb-8" : "pb-24 md:pb-10")}>
+        <PullToRefresh />
         {home ? null : <TopBar pathname={pathname} />}
         <main className={home ? "px-3 pt-3 md:px-6" : "px-4 py-4 md:px-8"}>{children}</main>
       </div>

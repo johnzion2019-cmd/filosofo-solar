@@ -38,5 +38,5 @@ export function useJson<T>(url: string | null, refreshMs?: number) {
     return () => clearInterval(timer);
   }, [reload, refreshMs]);
 
-  return { data, error, loading, reload, receivedAt };
+  return { data, error, loading, reload, receivedAt, refreshMs: refreshMs ?? null };
 }

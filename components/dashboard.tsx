@@ -9,8 +9,11 @@ import {
   Banknote,
   Battery,
   Check,
+  CloudSun,
+  Download,
   House,
   LogOut,
+  Moon,
   RefreshCw,
   Settings,
   SunMedium,
@@ -23,10 +26,39 @@ import { usePlant } from "@/components/plant-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { DashboardData } from "@/components/models";
+import type { SolarForecast } from "@/lib/forecast";
+import { plantHeroPeriod, type HeroPeriod } from "@/lib/house-hero";
 import type { Payback } from "@/lib/payback";
+import type { PlantRecords } from "@/lib/records";
 import { formatAgo, formatKwh1, formatKw, formatPeso } from "@/lib/format";
 import type { Sample } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+function useRefreshCountdown(receivedAt: number, refreshMs: number | null) {
+  const [left, setLeft] = useState(() => Math.max(0, (refreshMs ?? 0) - (Date.now() - receivedAt)));
+  useEffect(() => {
+    if (!refreshMs) {
+      setLeft(0);
+      return;
+    }
+    function tick() {
+      setLeft(Math.max(0, (refreshMs ?? 0) - (Date.now() - receivedAt)));
+    }
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [receivedAt, refreshMs]);
+  return Math.ceil(left / 1000);
+}
+
+function downloadCsv() {
+  const link = document.createElement("a");
+  link.href = "/api/export/csv";
+  link.download = "filosofo-solar-report.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 
 function useDashboardClock(timeZone: string) {
   const [now, setNow] = useState(() => new Date());
@@ -53,8 +85,9 @@ function useDashboardClock(timeZone: string) {
 }
 
 export function DashboardView() {
-  const { data, error, loading, reload, receivedAt } = usePlant();
+  const { data, error, loading, reload, receivedAt, refreshMs } = usePlant();
   const clock = useDashboardClock(data?.plant.timeZone ?? "Asia/Manila");
+  const secondsLeft = useRefreshCountdown(receivedAt, refreshMs);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 15_000);
@@ -95,6 +128,9 @@ export function DashboardView() {
             <button type="button" className="grid size-9 place-items-center rounded-full bg-white/8 hover:bg-white/15" aria-label="Refresh" onClick={() => void reload()}>
               <RefreshCw className="size-4" />
             </button>
+            <span className="tabular hidden text-[11px] text-muted-foreground sm:inline">
+              {secondsLeft > 0 ? `Next refresh in ${secondsLeft}s` : "Refreshing…"}
+            </span>
             <span className="tabular hidden text-sm font-medium sm:inline">{clock.time} {clock.zoneLabel}</span>
             {data.pinEnabled ? (
               <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => void signOut()}>
@@ -111,13 +147,22 @@ export function DashboardView() {
             {liveLabel}
           </span>
           <span className="text-muted-foreground">· {ago}</span>
+          <span className="tabular text-muted-foreground sm:hidden">{secondsLeft > 0 ? `Next refresh in ${secondsLeft}s` : "Refreshing…"}</span>
           <span className="sm:hidden tabular">{clock.time} {clock.zoneLabel}</span>
           <span className="text-muted-foreground">{data.plant.location} · {clock.time} {clock.zoneLabel}</span>
           {data.weather ? <span className="text-muted-foreground">{data.weather.tempF.toFixed(0)}°F · {data.weather.label}</span> : null}
         </div>
       </header>
 
-      <HouseHero live={data.live} photo={data.housePhotoUrl} />
+      <HouseHero
+        live={data.live}
+        photo={data.housePhotoUrl}
+        custom={data.housePhotoCustom}
+        dayUrl={data.houseDayUrl}
+        nightUrl={data.houseNightUrl}
+        timeZone={data.plant.timeZone}
+      />
+      {data.forecast ? <ForecastCard forecast={data.forecast} /> : null}
       <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
         <EnergySummary data={data} />
         <BatteryCard data={data} />
@@ -156,13 +201,68 @@ function CardShell({ title, aside, children, className }: { title?: string; asid
   );
 }
 
-function HouseHero({ live, photo }: { live: Sample; photo: string }) {
+function HouseHero({
+  live,
+  photo,
+  custom,
+  dayUrl,
+  nightUrl,
+  timeZone,
+}: {
+  live: Sample;
+  photo: string;
+  custom: boolean;
+  dayUrl: string;
+  nightUrl: string;
+  timeZone: string;
+}) {
   const off = live.gridStatus === "off-grid";
+  const [mode, setMode] = useState<"auto" | HeroPeriod>("auto");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const saved = window.localStorage.getItem("filosofo-hero-photo");
+    if (saved === "auto" || saved === "day" || saved === "night") setMode(saved);
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const autoPeriod = plantHeroPeriod(now, timeZone);
+  const period: HeroPeriod = custom ? autoPeriod : mode === "auto" ? autoPeriod : mode;
+  const src = custom ? photo : period === "day" ? dayUrl : nightUrl;
+
+  function pick(next: "auto" | HeroPeriod) {
+    setMode(next);
+    window.localStorage.setItem("filosofo-hero-photo", next);
+  }
+
   return (
     <section className="relative overflow-hidden rounded-3xl border border-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.28)]">
       <div className="relative aspect-[4/3] w-full">
-        <Image src={photo} alt="Filosofo house in Negros Oriental" fill priority unoptimized className="object-cover object-center" />
+        <Image src={src} alt="Filosofo house in Negros Oriental" fill priority unoptimized className="object-cover object-center" />
       </div>
+      {custom ? null : (
+        <div className="absolute left-3 top-3 z-10 inline-flex rounded-full border border-white/25 bg-black/70 p-0.5 shadow-lg backdrop-blur-sm">
+          {([
+            { id: "auto", label: "Auto" },
+            { id: "day", label: "Day", icon: <SunMedium className="size-3" /> },
+            { id: "night", label: "Night", icon: <Moon className="size-3" /> },
+          ] as const).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => pick(item.id)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                mode === item.id ? "bg-white/20 text-white" : "text-white/70 hover:text-white",
+              )}
+              aria-pressed={mode === item.id}
+              aria-label={item.id === "auto" ? "Automatic day or night house photo" : `Preview ${item.id} house photo`}
+            >
+              {"icon" in item ? item.icon : null}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/5 to-black/40" />
       <svg viewBox="0 0 360 240" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
         <path d="M180 50 C 180 105, 180 140, 180 168" fill="none" stroke="#f5d76e" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
@@ -185,6 +285,64 @@ function FlowNode({ align, className, icon, tone, label, value, badge }: { align
         <span className="tabular mt-0.5 block text-xs font-semibold">{value}</span>
       </span>
       {badge ? <span className="mt-0.5 rounded-full bg-rose-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white">{badge}</span> : null}
+    </div>
+  );
+}
+
+function ForecastCard({ forecast }: { forecast: SolarForecast }) {
+  const days = [
+    { title: "Today", day: forecast.today },
+    { title: "Tomorrow", day: forecast.tomorrow },
+  ];
+  return (
+    <CardShell title="Solar Forecast" aside="Est.">
+      <div className="grid grid-cols-2 gap-3">
+        {days.map((item) => (
+          <div key={item.title} className="rounded-2xl bg-black/25 p-3">
+            <div className="text-[11px] font-semibold tracking-wide text-amber-300">{item.title.toUpperCase()}</div>
+            <div className="tabular mt-1 text-2xl font-semibold text-amber-100">{formatKwh1(item.day.estKwh)} kWh</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {item.day.label}
+              {item.day.cloudCoverPct != null ? ` · ${Math.round(item.day.cloudCoverPct)}% cloud` : ""}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 inline-flex items-start gap-2 text-sm text-emerald-100/90">
+        <CloudSun className="mt-0.5 size-4 shrink-0 text-amber-300" />
+        <span>{forecast.tip}</span>
+      </p>
+    </CardShell>
+  );
+}
+
+function RecordsStrip({ records }: { records: PlantRecords }) {
+  const items = [
+    {
+      label: "Best Day",
+      primary: records.bestDay ? records.bestDay.label : "—",
+      secondary: records.bestDay ? `${formatKwh1(records.bestDay.kwh)} kWh · ${formatPeso(records.bestDay.php)}` : "No daily history yet",
+    },
+    {
+      label: "30-Day Avg",
+      primary: records.average ? `${formatKwh1(records.average.kwh)} kWh` : "—",
+      secondary: records.average ? `${formatPeso(records.average.php)}/day` : "No daily history yet",
+    },
+    {
+      label: "Best Month",
+      primary: records.bestMonth ? records.bestMonth.label : "—",
+      secondary: records.bestMonth ? formatPeso(records.bestMonth.php) : "No monthly history yet",
+    },
+  ];
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0 rounded-2xl bg-black/25 px-3 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-300">{item.label}</div>
+          <div className="mt-1 truncate text-sm font-semibold">{item.primary}</div>
+          <div className="mt-0.5 text-xs leading-snug text-muted-foreground">{item.secondary}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -400,7 +558,18 @@ function EarningsCard({ data }: { data: DashboardData }) {
   return (
     <CardShell
       title="Earnings & Savings"
-      aside={`${data.plant.timeZone === "Asia/Manila" ? "PHT" : data.plant.timeZone} · ${formatPeso(today.tariffPhp)}/kWh`}
+      aside={
+        <span className="inline-flex items-center gap-2">
+          <span>{`${data.plant.timeZone === "Asia/Manila" ? "PHT" : data.plant.timeZone} · ${formatPeso(today.tariffPhp)}/kWh`}</span>
+          <button
+            type="button"
+            onClick={downloadCsv}
+            className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200 hover:bg-white/15"
+          >
+            <Download className="size-3" /> Export CSV
+          </button>
+        </span>
+      }
     >
       <div className="text-[11px] font-semibold tracking-wide text-amber-300">TODAY&apos;S EARNINGS (DAY)</div>
       <div className="mt-1 flex items-end justify-between gap-3">
@@ -422,6 +591,8 @@ function EarningsCard({ data }: { data: DashboardData }) {
           <div className="mt-0.5 text-[11px] text-muted-foreground">{formatKwh1(today.exportKwh)} kWh exported</div>
         </div>
       </div>
+
+      <RecordsStrip records={data.records} />
 
       <div className="my-4 h-px bg-white/10" />
 

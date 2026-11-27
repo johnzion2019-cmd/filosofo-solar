@@ -1,6 +1,7 @@
 import { estimateBatteryRuntime } from "@/lib/battery";
 import { billEstimate, CO2_KG_PER_KWH, cycleWindow, directSolarKwh, savingsPhp, selfConsumptionPct } from "@/lib/billing";
 import { buildPayback } from "@/lib/payback";
+import { buildPlantRecords } from "@/lib/records";
 import { addEnergyTotals, buildEarningsReport, DEFAULT_FEED_IN_PHP, mergeEnergyTotals } from "@/lib/earnings";
 import { getConfig } from "@/lib/config";
 import { emptyEnergy } from "@/lib/integrate";
@@ -11,7 +12,7 @@ import { formatPlantClock, startOfZonedDay, zonedParts } from "@/lib/time";
 import type { AppDb } from "@/lib/repo";
 import type { DataSource, EnergyTotals, Sample } from "@/lib/types";
 import { ensureDeyeDailyHistory } from "@/lib/sync";
-import { fetchWeather } from "@/lib/weather";
+import { fetchPlantWeather } from "@/lib/weather";
 
 function clockNote(simulated: boolean, timeZone: string, now: number): string | null {
   if (!simulated) return null;
@@ -33,7 +34,7 @@ export function viewContext(db: AppDb) {
 
 export async function buildStatus(db: AppDb) {
   const { cfg, mode, clock, live } = viewContext(db);
-  const weather = await fetchWeather(cfg.lat, cfg.lon, cfg.timeZone);
+  const weather = await fetchPlantWeather(cfg.lat, cfg.lon, cfg.timeZone);
   const simulated = mode === "demo" && clock.simulated;
   return {
     mode,
@@ -55,7 +56,8 @@ export async function buildStatus(db: AppDb) {
     simulatedClock: simulated,
     clockLabel: formatPlantClock(live?.ts ?? clock.now, cfg.timeZone),
     clockNote: clockNote(simulated, cfg.timeZone, clock.now),
-    weather,
+    weather: weather.current,
+    forecast: weather.forecast,
     operatingMode: live?.operatingMode && live.operatingMode !== "—" ? live.operatingMode : cfg.operatingMode,
     gridStatus: live?.gridStatus ?? null,
     unreadAlerts: unreadCount(db),
@@ -209,6 +211,10 @@ export async function buildDashboard(db: AppDb) {
       now: status.clockNow,
       timeZone: cfg.timeZone,
     }),
+    records: buildPlantRecords(earnings.daily, earnings.monthly),
+    housePhotoCustom: cfg.housePhotoCustom,
+    houseDayUrl: "/house-day.jpg",
+    houseNightUrl: "/house-default.jpg",
   };
 }
 

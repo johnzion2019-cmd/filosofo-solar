@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Download } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { HistoryData } from "@/components/models";
 import { useJson } from "@/components/use-json";
@@ -38,6 +39,21 @@ export function HistoryView() {
             {unit === "kW" ? "Average power through the period." : "Energy totals. Grid and battery keep the live sign: positive grid is import, positive battery is discharge."}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const link = document.createElement("a");
+            link.href = "/api/export/csv";
+            link.download = "filosofo-solar-report.csv";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }}
+          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/15"
+        >
+          <Download className="size-3.5" /> Export CSV
+        </button>
         <Tabs value={range} onValueChange={(value) => setRange(value as typeof range)}>
           <TabsList>
             {RANGES.map((item) => (
@@ -47,6 +63,7 @@ export function HistoryView() {
             ))}
           </TabsList>
         </Tabs>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         {SERIES.map((series) => (

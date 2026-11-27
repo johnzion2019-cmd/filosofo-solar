@@ -12,7 +12,11 @@ import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleStartDayInMonth, cycleWindow, daysInCalendarMonth, DEFAULT_CYCLE_START_DAY, savingsPhp, selfConsumptionPct } from "@/lib/billing";
 import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MONTHLY_EARNINGS, selfConsumedKwh } from "@/lib/earnings";
+import { buildEarningsCsv, csvFilename } from "@/lib/csv-report";
+import { buildForecastDay, estimateGenerationKwh, forecastTip } from "@/lib/forecast";
+import { plantHeroPeriod } from "@/lib/house-hero";
 import { buildPayback } from "@/lib/payback";
+import { buildPlantRecords } from "@/lib/records";
 import { buildHistory, todayTotals } from "@/lib/history";
 import { latestSnapshot } from "@/lib/repo";
 import { resolveSource } from "@/lib/runtime";
@@ -565,5 +569,103 @@ describe("solar payback", () => {
     expect(result.remainingPhp).toBe(0);
     expect(result.breakEvenLabel).toBe("Paid off");
     expect(result.breakEvenYmd).toBe("2026-11-28");
+  });
+});
+
+describe("house hero day and night", () => {
+  it("uses Manila daylight from 6:00 AM until 5:00 PM", () => {
+    const at = (hour: number, minute = 0) =>
+      zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour, minute }, "Asia/Manila");
+    expect(plantHeroPeriod(at(5, 59), "Asia/Manila")).toBe("night");
+    expect(plantHeroPeriod(at(6, 0), "Asia/Manila")).toBe("day");
+    expect(plantHeroPeriod(at(16, 59), "Asia/Manila")).toBe("day");
+    expect(plantHeroPeriod(at(17, 0), "Asia/Manila")).toBe("night");
+  });
+});
+
+describe("solar forecast", () => {
+  it("calibrates 20 MJ/m² to about 51 kWh for the Filosofo array", () => {
+    expect(estimateGenerationKwh(20)).toBeCloseTo(51.1, 1);
+    expect(estimateGenerationKwh(0)).toBe(0);
+  });
+
+  it("writes a practical tip from tomorrow's sky", () => {
+    const sunny = buildForecastDay({
+      ymd: "2026-11-29",
+      shortwaveMj: 21,
+      cloudCoverPct: 12,
+      weatherCode: 0,
+      label: "Clear",
+      tempMaxF: 90,
+      tempMinF: 74,
+    });
+    const cloudy = buildForecastDay({
+      ymd: "2026-11-29",
+      shortwaveMj: 8,
+      cloudCoverPct: 78,
+      weatherCode: 3,
+      label: "Overcast",
+      tempMaxF: 84,
+      tempMinF: 73,
+    });
+    expect(forecastTip(sunny, sunny)).toBe("Sunny tomorrow — expect strong recharge");
+    expect(forecastTip(sunny, cloudy)).toBe("Cloudy — conserve battery overnight");
+  });
+});
+
+describe("records and csv export", () => {
+  const day = (period: string, productionKwh: number, totalPhp: number, selfSuppliedKwh = productionKwh) => ({
+    period,
+    label: period,
+    title: period,
+    source: "live" as const,
+    totalPhp,
+    consumptionSavingsPhp: totalPhp,
+    feedInEarningsPhp: 0,
+    selfSuppliedKwh,
+    selfConsumedKwh: selfSuppliedKwh,
+    loadKwh: selfSuppliedKwh,
+    importKwh: 0,
+    exportKwh: 0,
+    productionKwh,
+    tariffPhp: 16.5,
+    feedInRatePhp: 0,
+  });
+
+  it("picks the best day, 30-day average, and best month", () => {
+    const records = buildPlantRecords(
+      [
+        day("2026-11-20", 40, 660),
+        day("2026-11-27", 69.7, 1150.05),
+        day("2026-11-28", 10, 165),
+      ],
+      [
+        { period: "2026-10", label: "Oct", title: "October", consumptionSavingsPhp: 21883.61, feedInEarningsPhp: 0, totalPhp: 21883.61, chargedEnergyKwh: null, source: "seeded" },
+        { period: "2026-11", label: "Nov", title: "November", consumptionSavingsPhp: 20000, feedInEarningsPhp: 0, totalPhp: 20000, chargedEnergyKwh: null, source: "live" },
+      ],
+    );
+    expect(records.bestDay?.label).toBe("Nov 27");
+    expect(records.bestDay?.kwh).toBeCloseTo(69.7, 5);
+    expect(records.bestDay?.php).toBeCloseTo(1150.05, 5);
+    expect(records.average?.days).toBe(3);
+    expect(records.average?.kwh).toBeCloseTo((40 + 69.7 + 10) / 3, 5);
+    expect(records.bestMonth?.label).toBe("Oct 2026");
+    expect(records.bestMonth?.php).toBeCloseTo(21883.61, 2);
+  });
+
+  it("builds a monthly and daily CSV report", () => {
+    const csv = buildEarningsCsv({
+      today: day("2026-11-28", 10, 165),
+      daily: [day("2026-11-27", 69.7, 1150.05), day("2026-11-28", 10, 165)],
+      monthly: [
+        { period: "2026-10", label: "Oct", title: "October", consumptionSavingsPhp: 21883.61, feedInEarningsPhp: 0, totalPhp: 21883.61, chargedEnergyKwh: null, source: "seeded" },
+      ],
+      lifetimeTotalPhp: 21883.61,
+    });
+    expect(csvFilename("2026-11-28")).toBe("filosofo-solar-report-2026-11-28.csv");
+    expect(csv).toContain("Monthly Summary");
+    expect(csv).toContain("2026-10,21883.61,0.00,21883.61");
+    expect(csv).toContain("Daily History");
+    expect(csv).toContain("2026-11-27,69.70,1150.05,0.00,1150.05");
   });
 });

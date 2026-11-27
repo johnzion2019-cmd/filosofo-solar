@@ -1,6 +1,8 @@
 import type { BatteryRuntime } from "@/lib/battery";
 import type { EarningsReport } from "@/lib/earnings";
+import type { SolarForecast } from "@/lib/forecast";
 import type { Payback } from "@/lib/payback";
+import type { PlantRecords } from "@/lib/records";
 import type { DataSource, EnergyTotals, GridStatus, Sample, WeatherSnapshot } from "@/lib/types";
 
 export type DashboardData = {
@@ -13,6 +15,8 @@ export type DashboardData = {
   clockLabel: string;
   clockNote: string | null;
   weather: WeatherSnapshot | null;
+  forecast: SolarForecast | null;
+  records: PlantRecords;
   operatingMode: string;
   gridStatus: GridStatus | null;
   unreadAlerts: number;
@@ -46,6 +50,9 @@ export type DashboardData = {
   };
   series: { ts: number; label: string; solarKw: number; loadKw: number; soc: number }[];
   housePhotoUrl: string;
+  housePhotoCustom: boolean;
+  houseDayUrl: string;
+  houseNightUrl: string;
 };
 
 export type SettingsData = {
