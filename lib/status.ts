@@ -113,6 +113,7 @@ export async function buildDashboard(db: AppDb) {
     now: status.clockNow,
     timeZone: cfg.timeZone,
     liveMonths,
+    accrueLiveMonths: status.mode === "deye",
   });
   const cycle = cycleWindow(status.clockNow, cfg.timeZone, cfg.billingCycleStartDay);
   let cycleGenerated = 0;

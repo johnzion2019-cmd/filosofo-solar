@@ -319,11 +319,31 @@ describe("earnings", () => {
       tariffPhp: 16.5,
       feedInRatePhp: 0,
       liveMonths: { "2026-11": liveNovember },
+      accrueLiveMonths: true,
     });
     const november = report.monthly.find((month) => month.period === "2026-11");
     expect(november?.consumptionSavingsPhp).toBe(21450);
     expect(november?.chargedEnergyKwh).toBe(560);
     expect(november?.source).toBe("seeded+live");
     expect(report.lifetimeTotalPhp).toBe(66488.16);
+  });
+
+  it("does not let demo history overwrite verified closed months", () => {
+    const now = zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 4, minute: 0 }, "Asia/Manila");
+    const inflated = { ...empty, productionKwh: 400, chargeKwh: 213.74 };
+    const report = buildEarningsReport({
+      today: empty,
+      now,
+      timeZone: "Asia/Manila",
+      liveMonths: { "2026-08": inflated, "2026-11": inflated },
+      accrueLiveMonths: false,
+    });
+    expect(report.monthly.map((month) => [month.period, month.totalPhp, month.source])).toEqual([
+      ["2026-08", 6405.95, "seeded"],
+      ["2026-09", 16748.6, "seeded"],
+      ["2026-10", 21883.61, "seeded"],
+      ["2026-11", 20530.06, "seeded"],
+    ]);
+    expect(report.lifetimeTotalPhp).toBe(65568.22);
   });
 });

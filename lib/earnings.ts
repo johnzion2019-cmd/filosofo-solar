@@ -208,12 +208,15 @@ export function buildEarningsReport(input: {
   now: number;
   timeZone?: string;
   liveMonths?: Record<string, EnergyTotals>;
+  /** When false (demo / unsynced), keep seeded history untouched. */
+  accrueLiveMonths?: boolean;
 }): EarningsReport {
   const tariffPhp = input.tariffPhp ?? DEFAULT_TARIFF_PHP;
   const feedInRatePhp = input.feedInRatePhp ?? DEFAULT_FEED_IN_PHP;
   const today = dayEarnings(input.today, tariffPhp, feedInRatePhp);
   const currentPeriod = zonedParts(input.now, input.timeZone ?? "Asia/Manila").ymd.slice(0, 7);
-  const liveMonths = input.liveMonths ?? {};
+  const accrueLive = input.accrueLiveMonths === true;
+  const liveMonths = accrueLive ? (input.liveMonths ?? {}) : {};
   const periods = new Set([...SEEDED_MONTHLY_EARNINGS.map((month) => month.period), ...Object.keys(liveMonths), currentPeriod]);
   const monthly = [...periods]
     .filter((period) => /^\d{4}-\d{2}$/.test(period) && period <= currentPeriod)
@@ -222,6 +225,8 @@ export function buildEarningsReport(input: {
       const seed = SEEDED_MONTHLY_EARNINGS.find((month) => month.period === period);
       const liveEnergy = liveMonths[period];
       const live = liveEnergy ? fromLive(period, liveEnergy, tariffPhp, feedInRatePhp) : null;
+      // Closed historical months stay on John's verified Deye Cloud totals.
+      if (seed && period < currentPeriod) return fromSeed(seed, "seeded");
       if (seed && live) return mergeMonth(seed, live);
       if (seed) return fromSeed(seed, "seeded");
       if (live) return live;
