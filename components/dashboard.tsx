@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { usePlant } from "@/components/plant-context";
+import { useForecast } from "@/components/use-forecast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { DashboardData } from "@/components/models";
@@ -88,6 +89,7 @@ export function DashboardView() {
   const { data, error, loading, reload, receivedAt, refreshMs } = usePlant();
   const clock = useDashboardClock(data?.plant.timeZone ?? "Asia/Manila");
   const secondsLeft = useRefreshCountdown(receivedAt, refreshMs);
+  const forecast = useForecast(data?.forecast, data?.plant ?? null);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 15_000);
@@ -162,7 +164,7 @@ export function DashboardView() {
         nightUrl={data.houseNightUrl}
         timeZone={data.plant.timeZone}
       />
-      {data.forecast ? <ForecastCard forecast={data.forecast} /> : null}
+      {forecast ? <ForecastCard forecast={forecast} /> : null}
       <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
         <EnergySummary data={data} />
         <BatteryCard data={data} />
