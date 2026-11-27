@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  Banknote,
   Battery,
   Check,
   House,
@@ -15,6 +16,7 @@ import {
   Settings,
   SunMedium,
   Thermometer,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -63,7 +65,7 @@ export function DashboardView() {
       </div>
     );
   }
-  if (!data?.live || !data.today || !data.cycle) {
+  if (!data?.live || !data.today || !data.cycle || !data.earnings) {
     return <div className="mx-auto max-w-xl rounded-3xl border border-border p-6 text-sm text-muted-foreground">Waiting for the first reading from inverter {data?.inverter.serial ?? "2508073177"}.</div>;
   }
 
@@ -117,6 +119,9 @@ export function DashboardView() {
         <div className="flex flex-col gap-3">
           <SolarLoadChart data={data} />
           <BatteryChart data={data} />
+        </div>
+        <div className="lg:col-span-2">
+          <EarningsCard data={data} />
         </div>
         <div className="flex flex-col gap-3">
           <SavingsCard data={data} />
@@ -367,6 +372,108 @@ function Progress({ pct }: { pct: number }) {
         ))}
       </div>
     </div>
+  );
+}
+
+
+function EarningsCard({ data }: { data: DashboardData }) {
+  const { today, monthly, lifetimeTotalPhp } = data.earnings;
+  const defaultPeriod = monthly[monthly.length - 1]?.period ?? "";
+  const [selected, setSelected] = useState(defaultPeriod);
+  const period = monthly.some((month) => month.period === selected) ? selected : defaultPeriod;
+  const month = monthly.find((item) => item.period === period) ?? monthly[monthly.length - 1];
+  const maxTotal = Math.max(1, ...monthly.map((item) => item.totalPhp));
+
+  return (
+    <CardShell
+      title="Earnings & Savings"
+      aside={`${data.plant.timeZone === "Asia/Manila" ? "PHT" : data.plant.timeZone} · ${formatPeso(today.tariffPhp)}/kWh`}
+    >
+      <div className="text-[11px] font-semibold tracking-wide text-amber-300">TODAY&apos;S EARNINGS (DAY)</div>
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <div>
+          <div className="tabular text-3xl font-semibold text-emerald-300">{formatPeso(today.totalPhp)}</div>
+          <div className="text-xs text-muted-foreground">Total Earnings Today</div>
+        </div>
+        <Wallet className="size-8 text-emerald-300/80" aria-hidden="true" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-black/25 p-3">
+          <div className="text-[11px] text-muted-foreground">Consumption Savings</div>
+          <div className="tabular mt-1 text-lg font-semibold text-emerald-300">{formatPeso(today.consumptionSavingsPhp)}</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">{formatKwh1(today.selfConsumedKwh)} kWh self-consumed</div>
+        </div>
+        <div className="rounded-2xl bg-black/25 p-3">
+          <div className="text-[11px] text-muted-foreground">Feed-In Earnings</div>
+          <div className="tabular mt-1 text-lg font-semibold">{formatPeso(today.feedInEarningsPhp)}</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">{formatKwh1(today.exportKwh)} kWh exported</div>
+        </div>
+      </div>
+
+      <div className="my-4 h-px bg-white/10" />
+
+      <div className="text-[11px] font-semibold tracking-wide text-amber-300">PAST MONTHLY EARNINGS</div>
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <div>
+          <div className="tabular text-3xl font-semibold">{formatPeso(lifetimeTotalPhp)}</div>
+          <div className="text-xs text-muted-foreground">Total Lifetime Earnings</div>
+        </div>
+        <Banknote className="size-8 text-amber-300/80" aria-hidden="true" />
+      </div>
+
+      <div className="mt-4 flex items-end gap-2">
+        {monthly.map((item) => {
+          const height = Math.max(8, Math.round((item.totalPhp / maxTotal) * 72));
+          const active = item.period === period;
+          return (
+            <button
+              key={item.period}
+              type="button"
+              onClick={() => setSelected(item.period)}
+              className="flex min-w-0 flex-1 flex-col items-center gap-1"
+              aria-pressed={active}
+              aria-label={`${item.title} ${formatPeso(item.totalPhp)}`}
+            >
+              <span className={cn("w-full rounded-t-lg transition-colors", active ? "bg-emerald-400" : "bg-emerald-400/35")} style={{ height }} />
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        {monthly.map((item) => {
+          const active = item.period === period;
+          return (
+            <button
+              key={`${item.period}-pill`}
+              type="button"
+              onClick={() => setSelected(item.period)}
+              className={cn(
+                "shrink-0 rounded-full px-3 py-1 text-xs font-semibold tracking-wide",
+                active ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40" : "bg-white/8 text-muted-foreground hover:bg-white/12",
+              )}
+              aria-pressed={active}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {month ? (
+        <div className="mt-4 rounded-2xl bg-black/25 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold">{month.title}</div>
+            <div className="tabular text-lg font-semibold text-emerald-300">{formatPeso(month.totalPhp)}</div>
+          </div>
+          <dl className="mt-2 space-y-2 text-sm">
+            <Split label="Consumption Savings" value={formatPeso(month.consumptionSavingsPhp)} accent />
+            <Split label="Feed-In Earnings" value={formatPeso(month.feedInEarningsPhp)} />
+            <Split label="Total Earnings" value={formatPeso(month.totalPhp)} accent />
+            {month.chargedEnergyKwh != null ? <Split label="Charged Energy" value={`${formatKwh1(month.chargedEnergyKwh)} kWh`} /> : null}
+          </dl>
+        </div>
+      ) : null}
+    </CardShell>
   );
 }
 

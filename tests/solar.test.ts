@@ -9,6 +9,7 @@ import { parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFrom
 import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleWindow, savingsPhp, selfConsumptionPct } from "@/lib/billing";
+import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MONTHLY_EARNINGS, selfConsumedKwh } from "@/lib/earnings";
 import { buildHistory, todayTotals } from "@/lib/history";
 import { latestSnapshot } from "@/lib/repo";
 import { resolveSource } from "@/lib/runtime";
@@ -270,5 +271,59 @@ describe("stored telemetry", () => {
     expect(formatPowerParts(1010)).toEqual({ value: "1.01", unit: "kW" });
     expect(formatPowerParts(0, true)).toEqual({ value: "0", unit: "kW" });
     expect(resolveSource(view.cfg, { demo: view.live, deye: null, bridge: null }, Date.now())).toBe("demo");
+  });
+});
+
+describe("earnings", () => {
+  const empty = { productionKwh: 0, loadKwh: 0, chargeKwh: 0, dischargeKwh: 0, importKwh: 0, exportKwh: 0, socClose: null };
+
+  it("prices today's self-consumption and leaves feed-in at the default zero rate", () => {
+    expect(selfConsumedKwh({ productionKwh: 10, exportKwh: 2, dischargeKwh: 1 })).toBe(8);
+    const earned = dayEarnings({ ...empty, productionKwh: 10, exportKwh: 2 }, 16.5, 0);
+    expect(earned.consumptionSavingsPhp).toBe(132);
+    expect(earned.feedInEarningsPhp).toBe(0);
+    expect(earned.totalPhp).toBe(132);
+    expect(dayEarnings({ ...empty, productionKwh: 18 }, 16.5).consumptionSavingsPhp).toBe(297);
+  });
+
+  it("falls back to battery discharge when today's production is still 0 at night", () => {
+    const earned = dayEarnings({ ...empty, dischargeKwh: 5, loadKwh: 5 }, 16.5, 0);
+    expect(earned.selfConsumedKwh).toBe(5);
+    expect(earned.consumptionSavingsPhp).toBe(82.5);
+    expect(earned.totalPhp).toBe(82.5);
+  });
+
+  it("seeds John\'s verified Aug–Nov 2026 earnings and keeps the lifetime floor", () => {
+    const now = zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 3, minute: 50 }, "Asia/Manila");
+    const report = buildEarningsReport({ today: empty, now, timeZone: "Asia/Manila", tariffPhp: 16.5, feedInRatePhp: 0 });
+    expect(SEEDED_MONTHLY_EARNINGS.map((month) => month.totalPhp)).toEqual([6405.95, 16748.6, 21883.61, 20530.06]);
+    expect(SEEDED_LIFETIME_TOTAL_PHP).toBe(65568.22);
+    expect(report.monthly.map((month) => [month.period, month.totalPhp, month.source])).toEqual([
+      ["2026-08", 6405.95, "seeded"],
+      ["2026-09", 16748.6, "seeded"],
+      ["2026-10", 21883.61, "seeded"],
+      ["2026-11", 20530.06, "seeded"],
+    ]);
+    expect(report.monthly[3]?.chargedEnergyKwh).toBe(549.5);
+    expect(report.lifetimeTotalPhp).toBe(65568.22);
+    expect(report.today.totalPhp).toBe(0);
+  });
+
+  it("lets the current month grow above the seeded November baseline", () => {
+    const now = zonedTimeToUtc({ year: 2026, month: 11, day: 29, hour: 16, minute: 0 }, "Asia/Manila");
+    const liveNovember = { ...empty, productionKwh: 1300, chargeKwh: 560, exportKwh: 0 };
+    const report = buildEarningsReport({
+      today: { ...empty, productionKwh: 18 },
+      now,
+      timeZone: "Asia/Manila",
+      tariffPhp: 16.5,
+      feedInRatePhp: 0,
+      liveMonths: { "2026-11": liveNovember },
+    });
+    const november = report.monthly.find((month) => month.period === "2026-11");
+    expect(november?.consumptionSavingsPhp).toBe(21450);
+    expect(november?.chargedEnergyKwh).toBe(560);
+    expect(november?.source).toBe("seeded+live");
+    expect(report.lifetimeTotalPhp).toBe(66488.16);
   });
 });

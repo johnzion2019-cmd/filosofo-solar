@@ -1,3 +1,4 @@
+import type { EarningsReport } from "@/lib/earnings";
 import type { DataSource, EnergyTotals, GridStatus, Sample, WeatherSnapshot } from "@/lib/types";
 
 export type DashboardData = {
@@ -24,6 +25,7 @@ export type DashboardData = {
   selfConsumptionPct: number;
   directKwh: number;
   todaySavingsPhp: number;
+  earnings: EarningsReport;
   peak: { w: number; ts: number };
   cycle: {
     label: string;

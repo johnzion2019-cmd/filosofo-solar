@@ -1,12 +1,13 @@
 import { billEstimate, CO2_KG_PER_KWH, cycleWindow, directSolarKwh, savingsPhp, selfConsumptionPct } from "@/lib/billing";
+import { addEnergyTotals, buildEarningsReport, DEFAULT_FEED_IN_PHP, mergeEnergyTotals } from "@/lib/earnings";
 import { getConfig } from "@/lib/config";
 import { emptyEnergy } from "@/lib/integrate";
 import { todayTotals } from "@/lib/history";
 import { energyRows, latestSnapshot, snapshotsBetween, unreadCount } from "@/lib/repo";
 import { clockFor, resolveSource } from "@/lib/runtime";
-import { formatPlantClock, startOfZonedDay } from "@/lib/time";
+import { formatPlantClock, startOfZonedDay, zonedParts } from "@/lib/time";
 import type { AppDb } from "@/lib/repo";
-import type { DataSource, Sample } from "@/lib/types";
+import type { DataSource, EnergyTotals, Sample } from "@/lib/types";
 import { fetchWeather } from "@/lib/weather";
 
 function clockNote(simulated: boolean, timeZone: string, now: number): string | null {
@@ -62,10 +63,57 @@ export async function buildStatus(db: AppDb) {
   };
 }
 
+
+function energyForPeriod(rows: Array<EnergyTotals & { period: string }>, period: string): EnergyTotals | null {
+  return rows.find((row) => row.period === period) ?? null;
+}
+
+function resolveTodayEnergy(db: AppDb, mode: DataSource, clockNow: number, timeZone: string): EnergyTotals {
+  const fromSamples = todayTotals(db, mode, clockNow);
+  const todayYmd = zonedParts(clockNow, timeZone).ymd;
+  const official = energyForPeriod(energyRows(db, mode, "day", todayYmd), todayYmd);
+  return mergeEnergyTotals(fromSamples, official);
+}
+
+function liveMonthEnergy(
+  db: AppDb,
+  mode: DataSource,
+  period: string,
+  todayYmd: string,
+  today: EnergyTotals,
+): EnergyTotals {
+  let totals = emptyEnergy();
+  for (const row of energyRows(db, mode, "day", `${period}-01`)) {
+    if (!row.period.startsWith(period)) continue;
+    if (row.period === todayYmd) continue;
+    totals = addEnergyTotals(totals, row);
+  }
+  if (todayYmd.startsWith(period)) totals = addEnergyTotals(totals, today);
+  const officialMonth = energyForPeriod(energyRows(db, mode, "month", period), period);
+  return mergeEnergyTotals(totals, officialMonth);
+}
+
 export async function buildDashboard(db: AppDb) {
   const status = await buildStatus(db);
   const cfg = getConfig(db);
-  const today = status.live ? todayTotals(db, status.mode, status.clockNow) : emptyEnergy();
+  const today = status.live ? resolveTodayEnergy(db, status.mode, status.clockNow, cfg.timeZone) : emptyEnergy();
+  const todayYmd = zonedParts(status.clockNow, cfg.timeZone).ymd;
+  const currentPeriod = todayYmd.slice(0, 7);
+  const liveMonths: Record<string, EnergyTotals> = {};
+  const monthPeriods = new Set<string>([currentPeriod]);
+  for (const row of energyRows(db, status.mode, "month", "2026-08")) monthPeriods.add(row.period);
+  for (const row of energyRows(db, status.mode, "day", "2026-08-01")) monthPeriods.add(row.period.slice(0, 7));
+  for (const period of monthPeriods) {
+    liveMonths[period] = liveMonthEnergy(db, status.mode, period, todayYmd, today);
+  }
+  const earnings = buildEarningsReport({
+    today,
+    tariffPhp: cfg.tariffPhp,
+    feedInRatePhp: DEFAULT_FEED_IN_PHP,
+    now: status.clockNow,
+    timeZone: cfg.timeZone,
+    liveMonths,
+  });
   const cycle = cycleWindow(status.clockNow, cfg.timeZone, cfg.billingCycleStartDay);
   let cycleGenerated = 0;
   let cycleImport = 0;
@@ -111,7 +159,8 @@ export async function buildDashboard(db: AppDb) {
     co2Kg: today.productionKwh * CO2_KG_PER_KWH,
     selfConsumptionPct: selfConsumptionPct(today.productionKwh, today.exportKwh),
     directKwh: directSolarKwh(today.productionKwh, today.chargeKwh, today.exportKwh),
-    todaySavingsPhp: savingsPhp(today.productionKwh, cfg.tariffPhp),
+    todaySavingsPhp: earnings.today.consumptionSavingsPhp,
+    earnings,
     peak: { w: peakW, ts: peakTs },
     cycle: {
       label: cycle.label,
