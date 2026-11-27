@@ -10,7 +10,6 @@ import {
   Battery,
   Check,
   House,
-  LifeBuoy,
   LogOut,
   RefreshCw,
   Settings,
@@ -158,8 +157,6 @@ function CardShell({ title, aside, children, className }: { title?: string; asid
 }
 
 function HouseHero({ live, photo }: { live: Sample; photo: string }) {
-  const ups = live.upsW > 0 ? live.upsW : live.source === "demo" ? Math.min(45, Math.max(10, live.loadW * 0.02)) : live.upsW;
-  const home = Math.max(0, live.loadW - ups);
   const off = live.gridStatus === "off-grid";
   return (
     <section className="relative overflow-hidden rounded-3xl border border-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.28)]">
@@ -168,14 +165,13 @@ function HouseHero({ live, photo }: { live: Sample; photo: string }) {
       </div>
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/5 to-black/40" />
       <svg viewBox="0 0 360 240" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-        <path d="M150 58 C 150 110, 168 140, 176 168" fill="none" stroke="#f5d76e" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
-        <path d="M78 188 C 110 188, 140 180, 168 172" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        <path d="M180 50 C 180 105, 180 140, 180 168" fill="none" stroke="#f5d76e" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        <path d="M72 188 C 115 188, 150 182, 168 174" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
       </svg>
-      <FlowNode align="center" className="left-1/2 top-[6%]" icon={<SunMedium className="size-4 text-amber-200" />} tone="bg-amber-400/25" label="PV Array" value={formatKw(live.pvW)} />
-      <FlowNode align="end" className="right-3 top-[14%]" icon={<Zap className="size-4 text-amber-200" />} tone="bg-amber-300/20" label="Grid" value={formatKw(Math.abs(live.gridW))} badge={off ? "Off-grid" : undefined} />
+      <FlowNode align="center" className="left-1/2 top-[5%]" icon={<SunMedium className="size-4 text-amber-200" />} tone="bg-amber-400/25" label="PV Array" value={formatKw(live.pvW)} />
+      <FlowNode align="end" className="right-3 top-[12%]" icon={<Zap className="size-4 text-amber-200" />} tone="bg-amber-300/20" label="Grid" value={formatKw(Math.abs(live.gridW))} badge={off ? "Off-grid" : undefined} />
       <FlowNode align="start" className="bottom-[8%] left-3" icon={<Battery className="size-4 text-emerald-300" />} tone="bg-emerald-400/25" label="Battery" value={`${formatKw(Math.abs(live.batteryW))} · ${live.batterySoc.toFixed(0)}%`} />
-      <FlowNode align="center" className="bottom-[10%] left-1/2" icon={<House className="size-4 text-emerald-200" />} tone="bg-emerald-500/30" label="Home" value={formatKw(home)} />
-      <FlowNode align="end" className="bottom-[8%] right-3" icon={<LifeBuoy className="size-4 text-violet-200" />} tone="bg-violet-500/35" label="UPS Load" value={formatKw(ups)} />
+      <FlowNode align="center" className="bottom-[8%] left-1/2" icon={<House className="size-4 text-emerald-200" />} tone="bg-emerald-500/30" label="Home" value={formatKw(live.loadW)} />
     </section>
   );
 }

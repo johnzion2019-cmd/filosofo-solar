@@ -74,7 +74,7 @@ export function InverterView() {
           <CardHeader><CardTitle>Inverter</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 pb-4">
             <Field label="Temperature" value={metric(live.inverterTemp, 1, "°C")} />
-            <Field label="Load" value={formatPower(live.loadW)} />
+            <Field label="Home Load" value={formatPower(live.loadW)} />
             <Field label="Operating mode" value={live.operatingMode} />
             <Field label="Serial" value={data.inverter.serial} />
           </CardContent>
