@@ -8,7 +8,7 @@ import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/li
 import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
 import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
-import { billEstimate, cycleWindow, savingsPhp, selfConsumptionPct } from "@/lib/billing";
+import { billEstimate, cycleStartDayInMonth, cycleWindow, daysInCalendarMonth, DEFAULT_CYCLE_START_DAY, savingsPhp, selfConsumptionPct } from "@/lib/billing";
 import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MONTHLY_EARNINGS, selfConsumedKwh } from "@/lib/earnings";
 import { buildHistory, todayTotals } from "@/lib/history";
 import { latestSnapshot } from "@/lib/repo";
@@ -256,6 +256,37 @@ describe("billing cycle", () => {
     expect(billEstimate(3, cycle.daysElapsed, cycle.daysTotal, 16.5).billPhp).toBe(49.5);
     expect(selfConsumptionPct(18, 0)).toBe(100);
   });
+
+  it("starts on the 30th and clamps to the last day of shorter months", () => {
+    expect(DEFAULT_CYCLE_START_DAY).toBe(30);
+    expect(daysInCalendarMonth(2026, 2)).toBe(28);
+    expect(daysInCalendarMonth(2028, 2)).toBe(29);
+    expect(cycleStartDayInMonth(2026, 2, 30)).toBe(28);
+    expect(cycleStartDayInMonth(2028, 2, 30)).toBe(29);
+    expect(cycleStartDayInMonth(2026, 11, 30)).toBe(30);
+
+    const beforeStart = cycleWindow(zonedTimeToUtc({ year: 2026, month: 11, day: 27, hour: 14, minute: 0 }, "Asia/Manila"), "Asia/Manila", 30);
+    expect(beforeStart.startYmd).toBe("2026-10-30");
+    expect(beforeStart.label).toBe("Cycle 30th–29th");
+    expect(beforeStart.daysElapsed).toBe(29);
+    expect(beforeStart.daysTotal).toBe(31);
+
+    const january = cycleWindow(zonedTimeToUtc({ year: 2026, month: 2, day: 15, hour: 10, minute: 0 }, "Asia/Manila"), "Asia/Manila", 30);
+    expect(january.startYmd).toBe("2026-01-30");
+    expect(january.label).toBe("Cycle 30th–27th");
+    expect(january.daysElapsed).toBe(17);
+    expect(january.daysTotal).toBe(29);
+
+    const feb28 = cycleWindow(zonedTimeToUtc({ year: 2026, month: 2, day: 28, hour: 14, minute: 0 }, "Asia/Manila"), "Asia/Manila", 30);
+    expect(feb28.startYmd).toBe("2026-02-28");
+    expect(feb28.label).toBe("Cycle 28th–29th");
+    expect(feb28.daysElapsed).toBe(1);
+    expect(feb28.daysTotal).toBe(30);
+
+    const leap = cycleWindow(zonedTimeToUtc({ year: 2028, month: 2, day: 29, hour: 10, minute: 0 }, "Asia/Manila"), "Asia/Manila", 30);
+    expect(leap.startYmd).toBe("2028-02-29");
+    expect(leap.label).toBe("Cycle 29th–29th");
+  });
 });
 
 describe("stored telemetry", () => {
@@ -272,6 +303,10 @@ describe("stored telemetry", () => {
     expect(view.mode).toBe("demo");
     expect(view.cfg.plantName).toBe(PLANT_DEFAULTS.plantName);
     expect(view.cfg.inverterSn).toBe("2508073177");
+    expect(view.cfg.inverterModel).toBe("SUN-16K-SG01LP1");
+    expect(view.cfg.ratedW).toBe(16000);
+    expect(view.cfg.batteryKwh).toBe(16);
+    expect(view.cfg.billingCycleStartDay).toBe(30);
     expect(view.live?.online).toBe(true);
     expect(view.live?.pvW ?? 0).toBeGreaterThan(400);
     expect(view.live?.loadW ?? 0).toBeGreaterThan(150);

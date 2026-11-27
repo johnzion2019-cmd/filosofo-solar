@@ -94,7 +94,7 @@ Rules, all on by default:
 
 The log is on the Alerts page. Acknowledge clears the badge until the condition happens again.
 
-The overview is a single scrolling page: house photo with live flow nodes, today’s energy, battery, strings, a production gauge, solar-versus-load and battery charts, and a Philippine-peso billing cycle. The default tariff is ₱16.50/kWh and the cycle runs from the 20th to the 19th, both editable in Settings. The built-in hero is John’s Filosofo house at twilight, in warm sand beige and dark walnut. Upload another photo there (JPEG, PNG, or WebP, stored next to the SQLite file) if you want to swap it.
+The overview is a single scrolling page: house photo with live flow nodes, today’s energy, battery, strings, a production gauge, solar-versus-load and battery charts, and a Philippine-peso billing cycle. The default tariff is ₱16.50/kWh and the billing cycle starts on the 30th (clamped to the last day of shorter months such as February), both editable in Settings. The default plant is a SUN-16K-SG01LP1 (16 kW) with a 16 kWh battery. The built-in hero is John’s Filosofo house at twilight, in warm sand beige and dark walnut. Upload another photo there (JPEG, PNG, or WebP, stored next to the SQLite file) if you want to swap it.
 
 Set `APP_PIN` to require a PIN for the UI and JSON routes. `POST /api/ingest` and `GET /api/health` stay open so a bridge and a platform health check keep working. Leave the PIN unset only on a private network. The ingest key is visible to anyone who can open Settings.
 

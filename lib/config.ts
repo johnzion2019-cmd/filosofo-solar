@@ -1,4 +1,4 @@
-import { DEFAULT_CYCLE_START_DAY, DEFAULT_DAILY_TARGET_KWH, DEFAULT_TARIFF_PHP } from "@/lib/billing";
+import { clampCycleStartDay, DEFAULT_CYCLE_START_DAY, DEFAULT_DAILY_TARGET_KWH, DEFAULT_TARIFF_PHP } from "@/lib/billing";
 import type { DeyeRegion } from "@/lib/deye";
 import { getSetting, setSetting, type AppDb } from "@/lib/repo";
 import { decryptSecret, encryptSecret, newIngestKey } from "@/lib/secrets";
@@ -136,7 +136,7 @@ export function getConfig(db: AppDb): ResolvedConfig {
     operatingMode: pick("operatingMode", "operating_mode", "", PLANT_DEFAULTS.operatingMode),
     nominalHz: num(pick("nominalHz", "nominal_hz", "", String(PLANT_DEFAULTS.nominalHz)), PLANT_DEFAULTS.nominalHz),
     tariffPhp: Math.max(0, num(pick("tariffPhp", "tariff_php", "", String(DEFAULT_TARIFF_PHP)), DEFAULT_TARIFF_PHP)),
-    billingCycleStartDay: Math.min(28, Math.max(1, Math.round(num(pick("billingCycleStartDay", "billing_cycle_start_day", "", String(DEFAULT_CYCLE_START_DAY)), DEFAULT_CYCLE_START_DAY)))),
+    billingCycleStartDay: clampCycleStartDay(num(pick("billingCycleStartDay", "billing_cycle_start_day", "", String(DEFAULT_CYCLE_START_DAY)), DEFAULT_CYCLE_START_DAY)),
     dailyTargetKwh: Math.max(1, num(pick("dailyTargetKwh", "daily_target_kwh", "", String(DEFAULT_DAILY_TARGET_KWH)), DEFAULT_DAILY_TARGET_KWH)),
     housePhotoCustom: readRaw(db, "house_photo") === "custom",
     deyeRegion: region,
@@ -257,7 +257,7 @@ export function applySettings(db: AppDb, patch: SettingsPatch): void {
   if (patch.rotateIngestKey && !env("INGEST_API_KEY")) writeRaw(db, "ingest_api_key", newIngestKey());
   if (patch.tariffPhp != null && Number.isFinite(patch.tariffPhp)) write("tariffPhp", "tariff_php", String(Math.max(0, patch.tariffPhp)));
   if (patch.billingCycleStartDay != null && Number.isFinite(patch.billingCycleStartDay)) {
-    write("billingCycleStartDay", "billing_cycle_start_day", String(Math.min(28, Math.max(1, Math.round(patch.billingCycleStartDay)))));
+    write("billingCycleStartDay", "billing_cycle_start_day", String(clampCycleStartDay(patch.billingCycleStartDay)));
   }
   if (patch.dailyTargetKwh != null && patch.dailyTargetKwh > 0) write("dailyTargetKwh", "daily_target_kwh", String(patch.dailyTargetKwh));
 }

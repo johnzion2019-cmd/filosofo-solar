@@ -1,7 +1,7 @@
 import { startOfZonedDay, zonedParts, zonedTimeToUtc } from "@/lib/time";
 
 export const DEFAULT_TARIFF_PHP = 16.5;
-export const DEFAULT_CYCLE_START_DAY = 20;
+export const DEFAULT_CYCLE_START_DAY = 30;
 export const DEFAULT_DAILY_TARGET_KWH = 25;
 export const CO2_KG_PER_KWH = 0.583;
 
@@ -15,6 +15,20 @@ export type CycleWindow = {
   label: string;
 };
 
+export const MAX_CYCLE_START_DAY = 31;
+
+export function clampCycleStartDay(value: number): number {
+  return Math.min(MAX_CYCLE_START_DAY, Math.max(1, Math.round(value)));
+}
+
+export function daysInCalendarMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+export function cycleStartDayInMonth(year: number, month: number, startDay: number): number {
+  return Math.min(clampCycleStartDay(startDay), daysInCalendarMonth(year, month));
+}
+
 function ordinal(day: number): string {
   const teen = day % 100;
   if (teen >= 11 && teen <= 13) return `${day}th`;
@@ -25,25 +39,27 @@ function ordinal(day: number): string {
 }
 
 export function cycleWindow(now: number, timeZone: string, startDayInput: number): CycleWindow {
-  const startDay = Math.min(28, Math.max(1, Math.round(startDayInput)));
+  const startDay = clampCycleStartDay(startDayInput);
   const z = zonedParts(now, timeZone);
   let year = z.year;
   let month = z.month;
-  if (z.day < startDay) {
+  if (z.day < cycleStartDayInMonth(year, month, startDay)) {
     month -= 1;
     if (month < 1) {
       month = 12;
       year -= 1;
     }
   }
-  const startTs = zonedTimeToUtc({ year, month, day: startDay, hour: 0, minute: 0 }, timeZone);
+  const actualStartDay = cycleStartDayInMonth(year, month, startDay);
+  const startTs = zonedTimeToUtc({ year, month, day: actualStartDay, hour: 0, minute: 0 }, timeZone);
   let endYear = year;
   let endMonth = month + 1;
   if (endMonth > 12) {
     endMonth = 1;
     endYear += 1;
   }
-  const endTs = zonedTimeToUtc({ year: endYear, month: endMonth, day: startDay, hour: 0, minute: 0 }, timeZone);
+  const actualEndStartDay = cycleStartDayInMonth(endYear, endMonth, startDay);
+  const endTs = zonedTimeToUtc({ year: endYear, month: endMonth, day: actualEndStartDay, hour: 0, minute: 0 }, timeZone);
   const daysTotal = Math.max(1, Math.round((endTs - startTs) / 86_400_000));
   const todayStart = startOfZonedDay(now, timeZone);
   const daysElapsed = Math.min(daysTotal, Math.max(1, Math.floor((todayStart - startTs) / 86_400_000) + 1));
@@ -55,7 +71,7 @@ export function cycleWindow(now: number, timeZone: string, startDayInput: number
     todayYmd: z.ymd,
     daysElapsed,
     daysTotal,
-    label: `Cycle ${ordinal(startDay)}–${ordinal(endDay)}`,
+    label: `Cycle ${ordinal(actualStartDay)}–${ordinal(endDay)}`,
   };
 }
 

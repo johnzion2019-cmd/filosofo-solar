@@ -68,9 +68,9 @@ export const PLANT_DEFAULTS = {
   lon: 123.3054,
   timeZone: "Asia/Manila",
   inverterSn: "2508073177",
-  inverterModel: "SUN-5K-SG04LP1",
-  ratedW: 5000,
-  batteryKwh: 10.24,
+  inverterModel: "SUN-16K-SG01LP1",
+  ratedW: 16000,
+  batteryKwh: 16,
   operatingMode: "Manual Mode",
   nominalHz: 60,
 } as const;
