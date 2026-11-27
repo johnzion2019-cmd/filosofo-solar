@@ -49,8 +49,21 @@ export async function fetchPlantWeather(lat: number, lon: number, timeZone: stri
     url.searchParams.set("forecast_days", "3");
     url.searchParams.set("temperature_unit", "fahrenheit");
     url.searchParams.set("timezone", timeZone);
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000), cache: "no-store" });
-    if (!response.ok) throw new Error(`Weather request failed (${response.status})`);
+    const headers = { "User-Agent": "FilosofoSolar/1.0 (+https://filosofo-solar.onrender.com)" };
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000), cache: "no-store" });
+        if (response.ok) break;
+        lastError = new Error(`Weather request failed (${response.status})`);
+        response = null;
+      } catch (error) {
+        lastError = error;
+        response = null;
+      }
+    }
+    if (!response) throw lastError ?? new Error("Weather request failed");
     const body = (await response.json()) as {
       current?: { temperature_2m?: number; weather_code?: number };
       daily?: Record<string, unknown>;
@@ -79,7 +92,8 @@ export async function fetchPlantWeather(lat: number, lon: number, timeZone: stri
     const value = { current, forecast };
     cache = { key, at: Date.now(), value };
     return value;
-  } catch {
+  } catch (error) {
+    console.error("Open-Meteo weather/forecast fetch failed:", error);
     const value = { current: null, forecast: null };
     cache = { key, at: Date.now(), value };
     return value;
