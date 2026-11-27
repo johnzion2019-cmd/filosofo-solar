@@ -22,33 +22,40 @@ import {
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { usePlant } from "@/components/plant-context";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { DashboardData } from "@/components/models";
+import type { Payback } from "@/lib/payback";
 import { formatAgo, formatKwh1, formatKw, formatPeso } from "@/lib/format";
 import type { Sample } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function useManilaClock() {
+function useDashboardClock(timeZone: string) {
   const [now, setNow] = useState(() => new Date());
+  const [greeting, setGreeting] = useState("Hello");
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    function tick() {
+      const date = new Date();
+      setNow(date);
+      const hour = date.getHours();
+      setGreeting(hour < 5 || hour >= 18 ? "Good Evening" : hour < 12 ? "Good Morning" : "Good Afternoon");
+    }
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, []);
-  const hourText = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "numeric", hourCycle: "h23" }).format(now);
-  let hour = Number(hourText);
-  if (hour === 24) hour = 0;
-  const greeting = hour < 5 ? "Good Evening" : hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
   const time = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Manila",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
   }).format(now);
-  return { greeting, time };
+  const zoneLabel = timeZone === "Asia/Manila" ? "PHT" : timeZone;
+  return { greeting, time, zoneLabel };
 }
 
 export function DashboardView() {
   const { data, error, loading, reload, receivedAt } = usePlant();
-  const clock = useManilaClock();
+  const clock = useDashboardClock(data?.plant.timeZone ?? "Asia/Manila");
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 15_000);
@@ -89,7 +96,7 @@ export function DashboardView() {
             <button type="button" className="grid size-9 place-items-center rounded-full bg-white/8 hover:bg-white/15" aria-label="Refresh" onClick={() => void reload()}>
               <RefreshCw className="size-4" />
             </button>
-            <span className="tabular hidden text-sm font-medium sm:inline">{clock.time}</span>
+            <span className="tabular hidden text-sm font-medium sm:inline">{clock.time} {clock.zoneLabel}</span>
             {data.pinEnabled ? (
               <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => void signOut()}>
                 <LogOut className="size-3.5" /> Sign Out
@@ -105,8 +112,9 @@ export function DashboardView() {
             {liveLabel}
           </span>
           <span className="text-muted-foreground">· {ago}</span>
-          <span className="sm:hidden tabular">{clock.time}</span>
-          {data.weather ? <span className="text-muted-foreground">{data.weather.tempF.toFixed(0)}°F · {data.weather.label}</span> : <span className="text-muted-foreground">{data.plant.location}</span>}
+          <span className="sm:hidden tabular">{clock.time} {clock.zoneLabel}</span>
+          <span className="text-muted-foreground">{data.plant.location} · {clock.time} {clock.zoneLabel}</span>
+          {data.weather ? <span className="text-muted-foreground">{data.weather.tempF.toFixed(0)}°F · {data.weather.label}</span> : null}
         </div>
       </header>
 
@@ -226,6 +234,9 @@ function BatteryCard({ data }: { data: DashboardData }) {
         <div className="min-w-0 flex-1">
           <div className="tabular text-4xl font-semibold leading-none text-white">{live.batterySoc.toFixed(0)}%</div>
           <div className="mt-1 text-sm text-emerald-300">{formatKwh1(stored)} kWh <span className="text-muted-foreground">of {formatKwh1(data.inverter.batteryKwh)} kWh</span></div>
+          {data.batteryRuntime ? (
+            <div className="mt-1 text-sm text-amber-200/90">{data.batteryRuntime.label}</div>
+          ) : null}
           <dl className="mt-3 space-y-1.5 text-sm">
             <Row icon={<Zap className="size-3.5 text-amber-300" />} label={charging ? "Charging" : "Discharging"} value={formatKw(Math.abs(live.batteryW))} />
             <Row icon={<Zap className="size-3.5 text-sky-300" />} label="Voltage" value={live.batteryV != null ? `${live.batteryV.toFixed(2)} V` : "—"} />
@@ -569,7 +580,90 @@ function EarningsCard({ data }: { data: DashboardData }) {
           ) : null}
         </>
       )}
+
+      <div className="my-4 h-px bg-white/10" />
+      <PaybackCard payback={data.payback} />
     </CardShell>
+  );
+}
+
+function PaybackCard({ payback }: { payback: Payback }) {
+  const plant = usePlant();
+  const [cost, setCost] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasCost = payback.systemCostPhp > 0;
+  const paidOff = hasCost && payback.remainingPhp <= 0;
+
+  async function saveCost(event: React.FormEvent) {
+    event.preventDefault();
+    const value = Number(cost.replace(/,/g, ""));
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Enter your system install cost in pesos.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemCostPhp: value }),
+    });
+    const body = (await response.json()) as { error?: string };
+    setBusy(false);
+    if (!response.ok) {
+      setError(body.error || "Save failed");
+      return;
+    }
+    setCost("");
+    await plant.reload();
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-500/10 to-emerald-500/5 p-4">
+      <div className="text-[11px] font-semibold tracking-wide text-amber-300">SOLAR PAYBACK (ROI)</div>
+      <div className="mt-2 text-xs text-muted-foreground">Total Saved So Far</div>
+      <div className="tabular text-3xl font-semibold text-amber-100">{formatPeso(payback.totalSavedPhp)}</div>
+      {hasCost ? (
+        <>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-amber-300 to-emerald-400 transition-[width] duration-700"
+              style={{ width: `${Math.min(100, payback.paidOffPct)}%` }}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Paid Off</div>
+              <div className="tabular mt-1 text-lg font-semibold">{payback.paidOffPct.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Remaining</div>
+              <div className="tabular mt-1 text-lg font-semibold">{formatPeso(payback.remainingPhp)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Est. Break-Even</div>
+              <div className="mt-1 text-sm font-semibold">{paidOff ? "Paid off" : payback.breakEvenLabel ?? "—"}</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <form className="mt-3 space-y-2" onSubmit={(event) => void saveCost(event)}>
+          <p className="text-sm text-muted-foreground">Enter your system install cost (₱) to track payback</p>
+          <div className="flex gap-2">
+            <Input
+              inputMode="decimal"
+              placeholder="e.g. 850000"
+              value={cost}
+              onChange={(event) => setCost(event.target.value)}
+              aria-label="System install cost in pesos"
+            />
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+          </div>
+          {error ? <p className="text-xs text-rose-200">{error}</p> : null}
+        </form>
+      )}
+    </div>
   );
 }
 

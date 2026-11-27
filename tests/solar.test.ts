@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { afterAll, describe, expect, it } from "vitest";
 import { evaluateRules } from "@/lib/alerts";
+import { estimateBatteryRuntime } from "@/lib/battery";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
 import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
@@ -10,6 +11,7 @@ import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleStartDayInMonth, cycleWindow, daysInCalendarMonth, DEFAULT_CYCLE_START_DAY, savingsPhp, selfConsumptionPct } from "@/lib/billing";
 import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MONTHLY_EARNINGS, selfConsumedKwh } from "@/lib/earnings";
+import { buildPayback } from "@/lib/payback";
 import { buildHistory, todayTotals } from "@/lib/history";
 import { latestSnapshot } from "@/lib/repo";
 import { resolveSource } from "@/lib/runtime";
@@ -307,6 +309,8 @@ describe("stored telemetry", () => {
     expect(view.cfg.ratedW).toBe(16000);
     expect(view.cfg.batteryKwh).toBe(16);
     expect(view.cfg.billingCycleStartDay).toBe(30);
+    expect(view.cfg.batteryReserveSoc).toBe(20);
+    expect(view.cfg.systemCostPhp).toBe(0);
     expect(view.live?.online).toBe(true);
     expect(view.live?.pvW ?? 0).toBeGreaterThan(400);
     expect(view.live?.loadW ?? 0).toBeGreaterThan(150);
@@ -428,5 +432,125 @@ describe("earnings", () => {
       ["2026-11", 20530.06, "seeded"],
     ]);
     expect(report.lifetimeTotalPhp).toBe(65568.22);
+  });
+});
+
+describe("off-grid classification", () => {
+  it("classifies 0 W / 0 Hz as off-grid even when AC voltage is present", () => {
+    const sample = sampleFromDeye(
+      {
+        deviceDataList: [
+          {
+            deviceSn: "2508073177",
+            deviceState: 1,
+            collectionTime: 1_730_000_000,
+            dataList: [
+              { key: "TotalGridPower", value: "0" },
+              { key: "GridFrequency", value: "0" },
+              { key: "GridVoltage", value: "230" },
+              { key: "TotalConsumptionPower", value: "750" },
+              { key: "SOC", value: "55" },
+              { key: "BatteryPower", value: "720" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(sample.gridStatus).toBe("off-grid");
+    expect(sample.gridW).toBe(0);
+    expect(sample.acHz).toBe(0);
+  });
+
+  it("stays on-grid at zero export when frequency is active", () => {
+    const sample = sampleFromDeye(
+      {
+        deviceDataList: [
+          {
+            deviceSn: "2508073177",
+            deviceState: 1,
+            collectionTime: 1_730_000_000,
+            dataList: [
+              { key: "TotalGridPower", value: "0" },
+              { key: "GridFrequency", value: "60" },
+              { key: "GridVoltage", value: "230" },
+              { key: "TotalConsumptionPower", value: "750" },
+              { key: "SOC", value: "55" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(sample.gridStatus).toBe("on-grid");
+  });
+});
+
+describe("battery runtime", () => {
+  it("estimates hours left until reserve while discharging", () => {
+    const runtime = estimateBatteryRuntime({ batteryKwh: 16, soc: 55, batteryW: 720, reserveSoc: 20 });
+    expect(runtime.state).toBe("discharging");
+    expect(runtime.remainingKwh).toBeCloseTo(5.6, 5);
+    expect(runtime.hoursToReserve).toBeCloseTo(7.7778, 3);
+    expect(runtime.label).toBe("~7.8 hrs left until 20%");
+  });
+
+  it("estimates hours to full while charging", () => {
+    const runtime = estimateBatteryRuntime({ batteryKwh: 16, soc: 70, batteryW: -2500, reserveSoc: 20 });
+    expect(runtime.state).toBe("charging");
+    expect(runtime.neededKwh).toBeCloseTo(4.8, 5);
+    expect(runtime.hoursToFull).toBeCloseTo(1.92, 5);
+    expect(runtime.label).toBe("~1.9 hrs to full");
+  });
+
+  it("reports at reserve, standby, and sub-hour discharge", () => {
+    expect(estimateBatteryRuntime({ batteryKwh: 16, soc: 18, batteryW: 400, reserveSoc: 20 }).label).toBe("At reserve");
+    expect(estimateBatteryRuntime({ batteryKwh: 16, soc: 55, batteryW: 10, reserveSoc: 20 }).label).toBe("Standby");
+    expect(estimateBatteryRuntime({ batteryKwh: 16, soc: 22, batteryW: 800, reserveSoc: 20 }).label).toBe("~24 min left until 20%");
+  });
+});
+
+describe("solar payback", () => {
+  it("prompts until an install cost is set and then tracks payback", () => {
+    const monthly = SEEDED_MONTHLY_EARNINGS.map((month) => ({ totalPhp: month.totalPhp }));
+    const unset = buildPayback({
+      systemCostPhp: 0,
+      lifetimeTotalPhp: 69121.56,
+      monthly,
+      now: zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 12, minute: 0 }, "Asia/Manila"),
+      timeZone: "Asia/Manila",
+    });
+    expect(unset.totalSavedPhp).toBe(69121.56);
+    expect(unset.systemCostPhp).toBe(0);
+    expect(unset.breakEvenYmd).toBeNull();
+    expect(unset.paidOffPct).toBe(0);
+
+    const set = buildPayback({
+      systemCostPhp: 850000,
+      lifetimeTotalPhp: 69121.56,
+      monthly,
+      now: zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 12, minute: 0 }, "Asia/Manila"),
+      timeZone: "Asia/Manila",
+    });
+    expect(set.remainingPhp).toBeCloseTo(780878.44, 2);
+    expect(set.paidOffPct).toBeCloseTo((69121.56 / 850000) * 100, 5);
+    expect(set.averageMonthlySavingsPhp).toBeCloseTo(65568.22 / 4, 5);
+    expect(set.monthsToBreakEven).toBeGreaterThan(40);
+    expect(set.breakEvenYmd).toMatch(/^20\d\d-\d\d-\d\d$/);
+    expect(set.breakEvenLabel).toBeTruthy();
+  });
+
+  it("marks the system paid off once savings cover the install cost", () => {
+    const result = buildPayback({
+      systemCostPhp: 50000,
+      lifetimeTotalPhp: 69121.56,
+      monthly: [{ totalPhp: 20000 }],
+      now: zonedTimeToUtc({ year: 2026, month: 11, day: 28, hour: 12, minute: 0 }, "Asia/Manila"),
+      timeZone: "Asia/Manila",
+    });
+    expect(result.paidOffPct).toBe(100);
+    expect(result.remainingPhp).toBe(0);
+    expect(result.breakEvenLabel).toBe("Paid off");
+    expect(result.breakEvenYmd).toBe("2026-11-28");
   });
 });

@@ -298,13 +298,22 @@ export function mapMeasurePoints(dataList: unknown): Record<string, number | str
   return mapped;
 }
 
-function gridStatusFrom(mapped: Record<string, number | string | null>, loadW: number, acV: number | null): GridStatus {
+function gridStatusFrom(
+  mapped: Record<string, number | string | null>,
+  loadW: number,
+  acV: number | null,
+  gridW: number,
+  acHz: number | null,
+): GridStatus {
   const explicit = mapped.gridStatus != null ? String(mapped.gridStatus) : "";
   const off = mapped.offGrid != null ? String(mapped.offGrid) : "";
   const offNorm = normKey(off);
   const statusNorm = normKey(explicit);
   if (["1", "true", "off", "offgrid", "yes"].includes(offNorm) || statusNorm.includes("off")) return "off-grid";
   if (["0", "false", "on", "ongrid", "no"].includes(offNorm) || statusNorm.includes("on")) return "on-grid";
+  // Match Deye Cloud's "Off grid" badge: no grid power and no active frequency/voltage.
+  if (gridW === 0 && (acHz === 0 || acHz == null || acV === 0)) return "off-grid";
+  if (gridW !== 0 || (acHz != null && acHz > 0) || (acV != null && acV > 0)) return "on-grid";
   if (acV != null && acV < 50 && loadW > 50) return "off-grid";
   return "on-grid";
 }
@@ -374,6 +383,7 @@ export function sampleFromDeye(deviceBody: unknown, stationBody: unknown, fallba
   const pv1W = typeof mapped.pv1W === "number" ? mapped.pv1W : null;
   const pv2W = typeof mapped.pv2W === "number" ? mapped.pv2W : null;
   const acV = typeof mapped.acV === "number" ? mapped.acV : null;
+  const acHz = typeof mapped.acHz === "number" ? mapped.acHz : null;
   const modeRaw = typeof mapped.mode === "string" ? mapped.mode : null;
   const collection = device ? num(device.collectionTime) : null;
   const updated = station ? num(station.lastUpdateTime) : null;
@@ -391,14 +401,14 @@ export function sampleFromDeye(deviceBody: unknown, stationBody: unknown, fallba
     loadW,
     upsW: typeof mapped.upsW === "number" ? mapped.upsW : 0,
     gridW,
-    gridStatus: gridStatusFrom(mapped, loadW, acV),
+    gridStatus: gridStatusFrom(mapped, loadW, acV, gridW, acHz),
     batteryW,
     batterySoc: soc,
     batteryV: typeof mapped.batteryV === "number" ? mapped.batteryV : null,
     batteryA: typeof mapped.batteryA === "number" ? mapped.batteryA : null,
     batteryTemp: typeof mapped.batteryTemp === "number" ? mapped.batteryTemp : null,
     acV,
-    acHz: typeof mapped.acHz === "number" ? mapped.acHz : null,
+    acHz,
     inverterTemp: typeof mapped.inverterTemp === "number" ? mapped.inverterTemp : null,
     operatingMode: labelMode(modeRaw),
     online: device ? deviceOnline(device.deviceState, true) : true,

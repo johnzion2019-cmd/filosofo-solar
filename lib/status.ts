@@ -1,4 +1,6 @@
+import { estimateBatteryRuntime } from "@/lib/battery";
 import { billEstimate, CO2_KG_PER_KWH, cycleWindow, directSolarKwh, savingsPhp, selfConsumptionPct } from "@/lib/billing";
+import { buildPayback } from "@/lib/payback";
 import { addEnergyTotals, buildEarningsReport, DEFAULT_FEED_IN_PHP, mergeEnergyTotals } from "@/lib/earnings";
 import { getConfig } from "@/lib/config";
 import { emptyEnergy } from "@/lib/integrate";
@@ -194,5 +196,19 @@ export async function buildDashboard(db: AppDb) {
     },
     series,
     housePhotoUrl: "/api/house-photo?v=final",
+    batteryRuntime: estimateBatteryRuntime({
+      batteryKwh: cfg.batteryKwh,
+      soc: status.live?.batterySoc ?? 0,
+      batteryW: status.live?.batteryW ?? 0,
+      reserveSoc: cfg.batteryReserveSoc,
+    }),
+    payback: buildPayback({
+      systemCostPhp: cfg.systemCostPhp,
+      lifetimeTotalPhp: earnings.lifetimeTotalPhp,
+      monthly: earnings.monthly,
+      now: status.clockNow,
+      timeZone: cfg.timeZone,
+    }),
   };
 }
+

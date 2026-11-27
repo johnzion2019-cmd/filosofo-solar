@@ -36,6 +36,8 @@ type FormState = {
   tariffPhp: string;
   billingCycleStartDay: string;
   dailyTargetKwh: string;
+  batteryReserveSoc: string;
+  systemCostPhp: string;
   alertLowSocEnabled: boolean;
   alertLowSocThreshold: string;
   alertGridEnabled: boolean;
@@ -77,6 +79,8 @@ function toForm(data: SettingsData): FormState {
     tariffPhp: String(data.tariffPhp),
     billingCycleStartDay: String(data.billingCycleStartDay),
     dailyTargetKwh: String(data.dailyTargetKwh),
+    batteryReserveSoc: String(data.batteryReserveSoc),
+    systemCostPhp: data.systemCostPhp > 0 ? String(data.systemCostPhp) : "",
     alertLowSocEnabled: data.alerts.lowSocEnabled,
     alertLowSocThreshold: String(data.alerts.lowSocThreshold),
     alertGridEnabled: data.alerts.gridEnabled,
@@ -175,6 +179,8 @@ export function SettingsView() {
         tariffPhp: Number(draft.tariffPhp),
         billingCycleStartDay: Number(draft.billingCycleStartDay),
         dailyTargetKwh: Number(draft.dailyTargetKwh),
+        batteryReserveSoc: Number(draft.batteryReserveSoc),
+        systemCostPhp: draft.systemCostPhp.trim() === "" ? 0 : Number(draft.systemCostPhp),
       }),
     });
     const body = (await response.json()) as { error?: string };
@@ -316,6 +322,7 @@ export function SettingsView() {
           <Field label="Electricity rate (₱/kWh)" value={form.tariffPhp} onChange={(value) => set("tariffPhp", value)} />
           <Field label="Cycle starts on day" value={form.billingCycleStartDay} onChange={(value) => set("billingCycleStartDay", value)} />
           <Field label="Daily generation target (kWh)" value={form.dailyTargetKwh} onChange={(value) => set("dailyTargetKwh", value)} />
+          <Field label="System install cost (₱)" value={form.systemCostPhp} onChange={(value) => set("systemCostPhp", value)} placeholder="Leave blank until entered" />
           <div className="md:col-span-3">
             <Button onClick={() => void save()} disabled={busy !== null}>Save billing</Button>
           </div>
@@ -335,6 +342,10 @@ export function SettingsView() {
           <Field label="Model" value={form.inverterModel} onChange={(value) => set("inverterModel", value)} />
           <Field label="Rated power (W)" value={form.ratedW} onChange={(value) => set("ratedW", value)} />
           <Field label="Battery (kWh)" value={form.batteryKwh} onChange={(value) => set("batteryKwh", value)} />
+          <Field label="Battery reserve SOC (%)" value={form.batteryReserveSoc} onChange={(value) => set("batteryReserveSoc", value)} />
+          <div className="md:col-span-2">
+            <Button onClick={() => void save()} disabled={busy !== null}>Save plant</Button>
+          </div>
         </CardContent>
       </Card>
 

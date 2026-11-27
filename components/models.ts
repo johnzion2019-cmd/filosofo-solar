@@ -1,4 +1,6 @@
+import type { BatteryRuntime } from "@/lib/battery";
 import type { EarningsReport } from "@/lib/earnings";
+import type { Payback } from "@/lib/payback";
 import type { DataSource, EnergyTotals, GridStatus, Sample, WeatherSnapshot } from "@/lib/types";
 
 export type DashboardData = {
@@ -26,6 +28,8 @@ export type DashboardData = {
   directKwh: number;
   todaySavingsPhp: number;
   earnings: EarningsReport;
+  batteryRuntime: BatteryRuntime;
+  payback: Payback;
   peak: { w: number; ts: number };
   cycle: {
     label: string;
@@ -83,6 +87,8 @@ export type SettingsData = {
   tariffPhp: number;
   billingCycleStartDay: number;
   dailyTargetKwh: number;
+  batteryReserveSoc: number;
+  systemCostPhp: number;
   housePhotoCustom: boolean;
   mode: DataSource;
 };

@@ -47,6 +47,8 @@ const patchSchema = z.object({
   tariffPhp: z.number().finite().min(0).max(1000).optional(),
   billingCycleStartDay: z.number().int().min(1).max(31).optional(),
   dailyTargetKwh: z.number().finite().positive().max(500).optional(),
+  batteryReserveSoc: z.number().finite().min(0).max(90).optional(),
+  systemCostPhp: z.number().finite().min(0).max(100_000_000).optional(),
 });
 
 export async function POST(request: Request) {

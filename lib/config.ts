@@ -1,4 +1,5 @@
 import { clampCycleStartDay, DEFAULT_CYCLE_START_DAY, DEFAULT_DAILY_TARGET_KWH, DEFAULT_TARIFF_PHP } from "@/lib/billing";
+import { DEFAULT_BATTERY_RESERVE_SOC } from "@/lib/battery";
 import type { DeyeRegion } from "@/lib/deye";
 import { getSetting, setSetting, type AppDb } from "@/lib/repo";
 import { decryptSecret, encryptSecret, newIngestKey } from "@/lib/secrets";
@@ -19,6 +20,8 @@ export type ResolvedConfig = {
   tariffPhp: number;
   billingCycleStartDay: number;
   dailyTargetKwh: number;
+  batteryReserveSoc: number;
+  systemCostPhp: number;
   housePhotoCustom: boolean;
   deyeRegion: DeyeRegion;
   deyeBaseUrl: string;
@@ -88,6 +91,8 @@ export function ensureDefaults(db: AppDb): void {
     tariff_php: String(DEFAULT_TARIFF_PHP),
     billing_cycle_start_day: String(DEFAULT_CYCLE_START_DAY),
     daily_target_kwh: String(DEFAULT_DAILY_TARGET_KWH),
+    battery_reserve_soc: String(DEFAULT_BATTERY_RESERVE_SOC),
+    system_cost_php: "0",
   };
   const insert = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
   const tx = db.transaction(() => {
@@ -138,6 +143,8 @@ export function getConfig(db: AppDb): ResolvedConfig {
     tariffPhp: Math.max(0, num(pick("tariffPhp", "tariff_php", "", String(DEFAULT_TARIFF_PHP)), DEFAULT_TARIFF_PHP)),
     billingCycleStartDay: clampCycleStartDay(num(pick("billingCycleStartDay", "billing_cycle_start_day", "", String(DEFAULT_CYCLE_START_DAY)), DEFAULT_CYCLE_START_DAY)),
     dailyTargetKwh: Math.max(1, num(pick("dailyTargetKwh", "daily_target_kwh", "", String(DEFAULT_DAILY_TARGET_KWH)), DEFAULT_DAILY_TARGET_KWH)),
+    batteryReserveSoc: Math.min(90, Math.max(0, num(pick("batteryReserveSoc", "battery_reserve_soc", "", String(DEFAULT_BATTERY_RESERVE_SOC)), DEFAULT_BATTERY_RESERVE_SOC))),
+    systemCostPhp: Math.max(0, num(pick("systemCostPhp", "system_cost_php", "", "0"), 0)),
     housePhotoCustom: readRaw(db, "house_photo") === "custom",
     deyeRegion: region,
     deyeBaseUrl: pick("deyeBaseUrl", "deye_base_url", "DEYE_BASE_URL"),
@@ -199,6 +206,8 @@ export type SettingsPatch = {
   tariffPhp?: number;
   billingCycleStartDay?: number;
   dailyTargetKwh?: number;
+  batteryReserveSoc?: number;
+  systemCostPhp?: number;
 };
 
 const FIELD_ENV: Record<string, string> = {
@@ -260,6 +269,12 @@ export function applySettings(db: AppDb, patch: SettingsPatch): void {
     write("billingCycleStartDay", "billing_cycle_start_day", String(clampCycleStartDay(patch.billingCycleStartDay)));
   }
   if (patch.dailyTargetKwh != null && patch.dailyTargetKwh > 0) write("dailyTargetKwh", "daily_target_kwh", String(patch.dailyTargetKwh));
+  if (patch.batteryReserveSoc != null && Number.isFinite(patch.batteryReserveSoc)) {
+    write("batteryReserveSoc", "battery_reserve_soc", String(Math.min(90, Math.max(0, patch.batteryReserveSoc))));
+  }
+  if (patch.systemCostPhp != null && Number.isFinite(patch.systemCostPhp)) {
+    write("systemCostPhp", "system_cost_php", String(Math.max(0, patch.systemCostPhp)));
+  }
 }
 
 export function saveDeyeToken(db: AppDb, token: string, obtainedAt: number, expiresAt: number): void {
@@ -309,6 +324,8 @@ export function publicSettings(cfg: ResolvedConfig) {
     tariffPhp: cfg.tariffPhp,
     billingCycleStartDay: cfg.billingCycleStartDay,
     dailyTargetKwh: cfg.dailyTargetKwh,
+    batteryReserveSoc: cfg.batteryReserveSoc,
+    systemCostPhp: cfg.systemCostPhp,
     housePhotoCustom: cfg.housePhotoCustom,
     envLocked: cfg.envLocked,
     pinEnabled: Boolean(process.env.APP_PIN),
