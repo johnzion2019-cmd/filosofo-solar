@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { mergeEnergyTotals } from "@/lib/integrate";
+import { stringPowerWatts } from "@/lib/pv-strings";
 import type { AlertDraft, AlertRuleId, DataSource, EnergyTotals, Sample } from "@/lib/types";
 
 export type AppDb = InstanceType<typeof Database>;
@@ -22,6 +23,9 @@ export function migrate(db: AppDb): void {
       pv2_v REAL,
       pv2_a REAL,
       pv2_w REAL,
+      pv3_v REAL,
+      pv3_a REAL,
+      pv3_w REAL,
       load_w REAL NOT NULL,
       ups_w REAL NOT NULL DEFAULT 0,
       grid_w REAL NOT NULL,
@@ -44,6 +48,11 @@ export function migrate(db: AppDb): void {
   const columns = db.prepare("PRAGMA table_info(snapshots)").all() as { name: string }[];
   if (!columns.some((column) => column.name === "ups_w")) {
     db.exec("ALTER TABLE snapshots ADD COLUMN ups_w REAL NOT NULL DEFAULT 0");
+  }
+  for (const column of ["pv3_v", "pv3_a", "pv3_w"] as const) {
+    if (!columns.some((entry) => entry.name === column)) {
+      db.exec(`ALTER TABLE snapshots ADD COLUMN ${column} REAL`);
+    }
   }
   db.exec(`
 
@@ -97,6 +106,9 @@ type SnapshotRow = {
   pv2_v: number | null;
   pv2_a: number | null;
   pv2_w: number | null;
+  pv3_v: number | null;
+  pv3_a: number | null;
+  pv3_w: number | null;
   load_w: number;
   ups_w: number | null;
   grid_w: number;
@@ -120,10 +132,13 @@ function toSample(row: SnapshotRow): Sample {
     pvW: row.pv_w,
     pv1V: row.pv1_v,
     pv1A: row.pv1_a,
-    pv1W: row.pv1_w,
+    pv1W: stringPowerWatts(row.pv1_w, row.pv1_v, row.pv1_a),
     pv2V: row.pv2_v,
     pv2A: row.pv2_a,
-    pv2W: row.pv2_w,
+    pv2W: stringPowerWatts(row.pv2_w, row.pv2_v, row.pv2_a),
+    pv3V: row.pv3_v ?? null,
+    pv3A: row.pv3_a ?? null,
+    pv3W: stringPowerWatts(row.pv3_w ?? null, row.pv3_v ?? null, row.pv3_a ?? null),
     loadW: row.load_w,
     upsW: row.ups_w ?? 0,
     gridW: row.grid_w,
@@ -143,11 +158,11 @@ function toSample(row: SnapshotRow): Sample {
 
 const UPSERT = `
   INSERT INTO snapshots (
-    ts, source, pv_w, pv1_v, pv1_a, pv1_w, pv2_v, pv2_a, pv2_w,
+    ts, source, pv_w, pv1_v, pv1_a, pv1_w, pv2_v, pv2_a, pv2_w, pv3_v, pv3_a, pv3_w,
     load_w, ups_w, grid_w, grid_status, battery_w, battery_soc, battery_v, battery_a, battery_temp,
     ac_v, ac_hz, inverter_temp, operating_mode, online
   ) VALUES (
-    @ts, @source, @pv_w, @pv1_v, @pv1_a, @pv1_w, @pv2_v, @pv2_a, @pv2_w,
+    @ts, @source, @pv_w, @pv1_v, @pv1_a, @pv1_w, @pv2_v, @pv2_a, @pv2_w, @pv3_v, @pv3_a, @pv3_w,
     @load_w, @ups_w, @grid_w, @grid_status, @battery_w, @battery_soc, @battery_v, @battery_a, @battery_temp,
     @ac_v, @ac_hz, @inverter_temp, @operating_mode, @online
   )
@@ -159,6 +174,9 @@ const UPSERT = `
     pv2_v = excluded.pv2_v,
     pv2_a = excluded.pv2_a,
     pv2_w = excluded.pv2_w,
+    pv3_v = excluded.pv3_v,
+    pv3_a = excluded.pv3_a,
+    pv3_w = excluded.pv3_w,
     load_w = excluded.load_w,
     ups_w = excluded.ups_w,
     grid_w = excluded.grid_w,
@@ -186,6 +204,9 @@ export function insertSnapshot(db: AppDb, sample: Sample): void {
     pv2_v: sample.pv2V,
     pv2_a: sample.pv2A,
     pv2_w: sample.pv2W,
+    pv3_v: sample.pv3V,
+    pv3_a: sample.pv3A,
+    pv3_w: sample.pv3W,
     load_w: sample.loadW,
     ups_w: sample.upsW,
     grid_w: sample.gridW,
@@ -217,6 +238,9 @@ export function insertSnapshots(db: AppDb, samples: Sample[]): void {
         pv2_v: sample.pv2V,
         pv2_a: sample.pv2A,
         pv2_w: sample.pv2W,
+        pv3_v: sample.pv3V,
+        pv3_a: sample.pv3A,
+        pv3_w: sample.pv3W,
         load_w: sample.loadW,
         ups_w: sample.upsW,
         grid_w: sample.gridW,

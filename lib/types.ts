@@ -12,6 +12,9 @@ export type Sample = {
   pv2V: number | null;
   pv2A: number | null;
   pv2W: number | null;
+  pv3V: number | null;
+  pv3A: number | null;
+  pv3W: number | null;
   loadW: number;
   upsW: number;
   gridW: number;

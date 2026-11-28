@@ -33,6 +33,7 @@ import { plantHeroPeriod, type HeroPeriod } from "@/lib/house-hero";
 import type { Payback } from "@/lib/payback";
 import type { PlantRecords } from "@/lib/records";
 import { formatAgo, formatKwh1, formatKw, formatPeso } from "@/lib/format";
+import { pvStringsFromSample } from "@/lib/pv-strings";
 import { plantGreeting } from "@/lib/time";
 import type { Sample } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -426,10 +427,19 @@ function StringsCard({ data }: { data: DashboardData }) {
   return (
     <div className="flex flex-col gap-3">
       <CardShell title="Solar Strings">
-        <div className="grid grid-cols-2 gap-3">
-          <StringTile name="PV1" watts={live.pv1W} volts={live.pv1V} amps={live.pv1A} />
-          <StringTile name="PV2" watts={live.pv2W} volts={live.pv2V} amps={live.pv2A} />
-        </div>
+        {(() => {
+          const strings = pvStringsFromSample(live);
+          if (strings.length === 0) {
+            return <div className="text-sm text-muted-foreground">No string data yet</div>;
+          }
+          return (
+            <div className={`grid gap-3 ${strings.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+              {strings.map((row) => (
+                <StringTile key={row.name} name={row.name} watts={row.watts} volts={row.volts} amps={row.amps} />
+              ))}
+            </div>
+          );
+        })()}
       </CardShell>
       <div className="grid grid-cols-2 gap-3">
         <CardShell>

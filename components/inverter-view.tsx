@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { batteryFlowLabel, batteryFlowState } from "@/lib/battery";
 import { formatPower } from "@/lib/format";
+import { pvStringsFromSample } from "@/lib/pv-strings";
 
 function metric(value: number | null | undefined, digits: number, unit: string): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -47,8 +48,14 @@ export function InverterView() {
         <Card>
           <CardHeader><CardTitle>PV strings</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 pb-4">
-            <Field label="String 1" value={`${metric(live.pv1V, 1, "V")} · ${metric(live.pv1A, 2, "A")}`} hint={live.pv1W != null ? formatPower(live.pv1W) : undefined} />
-            <Field label="String 2" value={`${metric(live.pv2V, 1, "V")} · ${metric(live.pv2A, 2, "A")}`} hint={live.pv2W != null ? formatPower(live.pv2W) : undefined} />
+            {pvStringsFromSample(live).map((row) => (
+              <Field
+                key={row.name}
+                label={row.name.replace("PV", "String ")}
+                value={`${metric(row.volts, 1, "V")} · ${metric(row.amps, 2, "A")}`}
+                hint={row.watts != null ? formatPower(row.watts) : undefined}
+              />
+            ))}
             <Field label="Array power" value={formatPower(live.pvW)} />
           </CardContent>
         </Card>

@@ -1,3 +1,4 @@
+import { stringPowerWatts } from "@/lib/pv-strings";
 import type { GridStatus, Sample } from "@/lib/types";
 import { z } from "zod";
 
@@ -47,6 +48,12 @@ const schema = z
     pv2_a: finite.optional(),
     pv2W: finite.optional(),
     pv2_w: finite.optional(),
+    pv3V: finite.optional(),
+    pv3_v: finite.optional(),
+    pv3A: finite.optional(),
+    pv3_a: finite.optional(),
+    pv3W: finite.optional(),
+    pv3_w: finite.optional(),
     acV: finite.optional(),
     ac_v: finite.optional(),
     acHz: finite.optional(),
@@ -58,6 +65,7 @@ const schema = z
     online: z.boolean().optional(),
     pv1: z.object({ v: finite.optional(), a: finite.optional(), w: finite.optional() }).optional(),
     pv2: z.object({ v: finite.optional(), a: finite.optional(), w: finite.optional() }).optional(),
+    pv3: z.object({ v: finite.optional(), a: finite.optional(), w: finite.optional() }).optional(),
   })
   .passthrough();
 
@@ -125,10 +133,13 @@ export function parseIngestBody(input: unknown, now = Date.now()): { deviceSn: s
 
   const pv1V = pick(body.pv1V, body.pv1_v, body.pv1?.v) ?? null;
   const pv1A = pick(body.pv1A, body.pv1_a, body.pv1?.a) ?? null;
-  const pv1W = pick(body.pv1W, body.pv1_w, body.pv1?.w) ?? null;
+  const pv1W = stringPowerWatts(pick(body.pv1W, body.pv1_w, body.pv1?.w) ?? null, pv1V, pv1A);
   const pv2V = pick(body.pv2V, body.pv2_v, body.pv2?.v) ?? null;
   const pv2A = pick(body.pv2A, body.pv2_a, body.pv2?.a) ?? null;
-  const pv2W = pick(body.pv2W, body.pv2_w, body.pv2?.w) ?? null;
+  const pv2W = stringPowerWatts(pick(body.pv2W, body.pv2_w, body.pv2?.w) ?? null, pv2V, pv2A);
+  const pv3V = pick(body.pv3V, body.pv3_v, body.pv3?.v) ?? null;
+  const pv3A = pick(body.pv3A, body.pv3_a, body.pv3?.a) ?? null;
+  const pv3W = stringPowerWatts(pick(body.pv3W, body.pv3_w, body.pv3?.w) ?? null, pv3V, pv3A);
   const batteryV = pick(body.batteryV, body.battery_v) ?? null;
   const batteryA = pick(body.batteryA, body.battery_a) ?? null;
   const batteryTemp = pick(body.batteryTemp, body.battery_temp) ?? null;
@@ -156,6 +167,9 @@ export function parseIngestBody(input: unknown, now = Date.now()): { deviceSn: s
       pv2V,
       pv2A,
       pv2W,
+      pv3V,
+      pv3A,
+      pv3W,
       loadW,
       upsW,
       gridW,

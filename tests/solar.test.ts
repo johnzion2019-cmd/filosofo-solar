@@ -8,7 +8,8 @@ import { applySettings, ensureDefaults } from "@/lib/config";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
 import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye, stationDailyHistoryRange } from "@/lib/deye";
-import { formatPowerParts } from "@/lib/format";
+import { formatKw, formatPowerParts } from "@/lib/format";
+import { hasPvStringData, pvStringsFromSample, stringPowerWatts } from "@/lib/pv-strings";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleStartDayInMonth, cycleWindow, daysInCalendarMonth, DEFAULT_CYCLE_START_DAY, savingsPhp, selfConsumptionPct } from "@/lib/billing";
 import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MONTHLY_EARNINGS, selfConsumedKwh } from "@/lib/earnings";
@@ -95,6 +96,73 @@ describe("Deye Cloud client", () => {
     expect(merged.gridW).toBe(-120);
     expect(merged.batterySoc).toBe(83);
   });
+
+
+  it("maps DC Power PV keys and falls back to V × A for string watts", () => {
+    const official = sampleFromDeye(
+      {
+        deviceDataList: [
+          {
+            dataList: [
+              { key: "DC Voltage PV1", value: "328.0" },
+              { key: "DC Current PV1", value: "10.50" },
+              { key: "DC Power PV1", value: "3500" },
+              { key: "DC Voltage PV2", value: "325.4" },
+              { key: "DC Current PV2", value: "10.40" },
+              { key: "DC Voltage PV3", value: "321.0" },
+              { key: "DC Current PV3", value: "18.20" },
+              { key: "DC Power PV3", value: "5842" },
+              { key: "TotalSolarPower", value: "12674" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(official.pv1W).toBe(3500);
+    expect(official.pv2W).toBeCloseTo(325.4 * 10.4);
+    expect(official.pv3V).toBe(321);
+    expect(official.pv3A).toBeCloseTo(18.2);
+    expect(official.pv3W).toBe(5842);
+
+    const computed = sampleFromDeye(
+      {
+        deviceDataList: [
+          {
+            dataList: [
+              { key: "PV1Voltage", value: "328.0" },
+              { key: "PV1Current", value: "10.50" },
+              { key: "PV2Voltage", value: "325.4" },
+              { key: "PV2Current", value: "10.40" },
+              { key: "PV3Voltage", value: "0" },
+              { key: "PV3Current", value: "0" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(computed.pv1W).toBeCloseTo(3444);
+    expect(computed.pv2W).toBeCloseTo(3384.16);
+    expect(computed.pv3W).toBe(0);
+    expect(formatKw(computed.pv1W!)).toBe("3.44 kW");
+    expect(formatKw(0)).toBe("0.00 kW");
+
+    const strings = pvStringsFromSample(computed);
+    expect(strings.map((row) => row.name)).toEqual(["PV1", "PV2", "PV3"]);
+    expect(strings[0]?.watts).toBeCloseTo(3444);
+    expect(hasPvStringData(0, 0, 0)).toBe(true);
+    expect(hasPvStringData(null, null, null)).toBe(false);
+    expect(pvStringsFromSample({
+      pv1V: null, pv1A: null, pv1W: null,
+      pv2V: null, pv2A: null, pv2W: null,
+      pv3V: null, pv3A: null, pv3W: null,
+    })).toEqual([]);
+    expect(stringPowerWatts(null, 328.0, 10.5)).toBeCloseTo(3444);
+    expect(stringPowerWatts(3500, 328.0, 10.5)).toBe(3500);
+    expect(stringPowerWatts(null, 328.0, null)).toBeNull();
+  });
+
 
   it("parses station and device history", () => {
     const daily = parseStationHistory(
@@ -242,6 +310,9 @@ describe("alerts, ingest, and session", () => {
     pv2V: null,
     pv2A: null,
     pv2W: null,
+    pv3V: null,
+    pv3A: null,
+    pv3W: null,
     loadW: 400,
     upsW: 12,
     gridW: 0,

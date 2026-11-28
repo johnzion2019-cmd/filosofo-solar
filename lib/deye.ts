@@ -1,3 +1,4 @@
+import { stringPowerWatts } from "@/lib/pv-strings";
 import type { EnergyTotals, GridStatus, Sample } from "@/lib/types";
 import { deyePasswordField } from "@/lib/secrets";
 import { zonedParts } from "@/lib/time";
@@ -149,6 +150,48 @@ const KEY_MAP: Record<string, string> = {
   gridstatus: "gridStatus",
   offgrid: "offGrid",
 };
+
+function registerPvStringKeys(map: Record<string, string>): void {
+  for (const n of [1, 2, 3] as const) {
+    for (const alias of [
+      `pv${n}power`,
+      `powerpv${n}`,
+      `dcpowerpv${n}`,
+      `dcpv${n}power`,
+      `pv${n}inputpower`,
+      `pv${n}dcpower`,
+      `dcpower${n}`,
+      `ppv${n}`,
+    ]) {
+      map[alias] = `pv${n}W`;
+    }
+    for (const alias of [
+      `pv${n}voltage`,
+      `dcvoltagepv${n}`,
+      `voltagepv${n}`,
+      `dcpv${n}voltage`,
+      `vpv${n}`,
+    ]) {
+      map[alias] = `pv${n}V`;
+    }
+    for (const alias of [
+      `pv${n}current`,
+      `dccurrentpv${n}`,
+      `currentpv${n}`,
+      `dcpv${n}current`,
+      `ipv${n}`,
+    ]) {
+      map[alias] = `pv${n}A`;
+    }
+  }
+}
+
+registerPvStringKeys(KEY_MAP);
+
+function mappedNum(mapped: Record<string, number | string | null>, key: string): number | null {
+  return typeof mapped[key] === "number" ? mapped[key] : null;
+}
+
 
 const MODE_LABELS: Record<string, string> = {
   manual: "Manual Mode",
@@ -447,10 +490,17 @@ export function sampleFromDeye(deviceBody: unknown, stationBody: unknown, fallba
     else gridW = wire ?? 0;
   }
 
-  const pv1W = typeof mapped.pv1W === "number" ? mapped.pv1W : null;
-  const pv2W = typeof mapped.pv2W === "number" ? mapped.pv2W : null;
-  const acV = typeof mapped.acV === "number" ? mapped.acV : null;
-  const acHz = typeof mapped.acHz === "number" ? mapped.acHz : null;
+  const pv1V = mappedNum(mapped, "pv1V");
+  const pv1A = mappedNum(mapped, "pv1A");
+  const pv2V = mappedNum(mapped, "pv2V");
+  const pv2A = mappedNum(mapped, "pv2A");
+  const pv3V = mappedNum(mapped, "pv3V");
+  const pv3A = mappedNum(mapped, "pv3A");
+  const pv1W = stringPowerWatts(mappedNum(mapped, "pv1W"), pv1V, pv1A);
+  const pv2W = stringPowerWatts(mappedNum(mapped, "pv2W"), pv2V, pv2A);
+  const pv3W = stringPowerWatts(mappedNum(mapped, "pv3W"), pv3V, pv3A);
+  const acV = mappedNum(mapped, "acV");
+  const acHz = mappedNum(mapped, "acHz");
   const modeRaw = typeof mapped.mode === "string" ? mapped.mode : null;
   const collection = device ? num(device.collectionTime) : null;
   const updated = station ? num(station.lastUpdateTime) : null;
@@ -459,12 +509,15 @@ export function sampleFromDeye(deviceBody: unknown, stationBody: unknown, fallba
     ts: epochMs(collection ?? updated, fallbackTs),
     source: "deye",
     pvW,
-    pv1V: typeof mapped.pv1V === "number" ? mapped.pv1V : null,
-    pv1A: typeof mapped.pv1A === "number" ? mapped.pv1A : null,
+    pv1V,
+    pv1A,
     pv1W,
-    pv2V: typeof mapped.pv2V === "number" ? mapped.pv2V : null,
-    pv2A: typeof mapped.pv2A === "number" ? mapped.pv2A : null,
+    pv2V,
+    pv2A,
     pv2W,
+    pv3V,
+    pv3A,
+    pv3W,
     loadW,
     upsW: typeof mapped.upsW === "number" ? mapped.upsW : 0,
     gridW,
