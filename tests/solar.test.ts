@@ -7,7 +7,7 @@ import { batteryFlowState, estimateBatteryRuntime, formatBatteryChip, formatBatt
 import { applySettings, ensureDefaults } from "@/lib/config";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
-import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye } from "@/lib/deye";
+import { dailyEnergyFromDeye, parseDeviceHistory, parseStationHistory, resolveDeyeBaseUrl, sampleFromDeye, stationDailyHistoryRange } from "@/lib/deye";
 import { formatPowerParts } from "@/lib/format";
 import { allowIngest, parseIngestBody } from "@/lib/ingest";
 import { billEstimate, cycleStartDayInMonth, cycleWindow, daysInCalendarMonth, DEFAULT_CYCLE_START_DAY, savingsPhp, selfConsumptionPct } from "@/lib/billing";
@@ -136,6 +136,51 @@ describe("Deye Cloud client", () => {
     );
     expect(daily).toMatchObject({ loadKwh: 3.01, dischargeKwh: 3.01, productionKwh: 0 });
   });
+
+  it("prefers DailyActiveProduction for today's PV and ignores lifetime consumption", () => {
+    const daily = dailyEnergyFromDeye(
+      {
+        deviceDataList: [
+          {
+            dataList: [
+              { key: "SOC", value: "59" },
+              { key: "DailyEnergy", value: "2.2" },
+              { key: "DailyProduction", value: "2.2" },
+              { key: "DailyActiveProduction", value: "41.7" },
+              { key: "DailyChargingEnergy", value: "13.6" },
+              { key: "DailyDischargingEnergy", value: "6.4" },
+              { key: "DailyConsumption", value: "34.5" },
+              { key: "TotalConsumption", value: "15475" },
+              { key: "DailyEnergyPurchased", value: "0" },
+              { key: "DailyGridFeedIn", value: "0" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(daily).toMatchObject({
+      productionKwh: 41.7,
+      loadKwh: 34.5,
+      chargeKwh: 13.6,
+      dischargeKwh: 6.4,
+      importKwh: 0,
+      exportKwh: 0,
+      socClose: 59,
+    });
+    // generation + discharge + import ≈ consumption + charge + export (within losses)
+    const sources = daily!.productionKwh + daily!.dischargeKwh + daily!.importKwh;
+    const sinks = daily!.loadKwh + daily!.chargeKwh + daily!.exportKwh;
+    expect(Math.abs(sources - sinks)).toBeLessThan(1);
+  });
+
+  it("ends the daily station history window tomorrow so today is included", () => {
+    const now = Date.UTC(2026, 10, 28, 3, 55, 0); // 7:55 PM PT Nov 27 / 11:55 AM PHT Nov 28
+    const range = stationDailyHistoryRange(now, "Asia/Manila");
+    expect(range.startAt).toBe("2026-10-31");
+    expect(range.endAt).toBe("2026-11-29");
+  });
+
 });
 
 describe("demo plant", () => {

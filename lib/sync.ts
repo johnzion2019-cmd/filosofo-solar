@@ -6,6 +6,7 @@ import {
   parseDeviceHistory,
   parseStationHistory,
   sampleFromDeye,
+  stationDailyHistoryRange,
   type DeyeCredentials,
   type DeyeDevice,
   type DeyeStation,
@@ -238,8 +239,8 @@ export async function syncDeyeHistory(db: AppDb): Promise<{ snapshots: number; d
         snapshots = samples.length;
       }
     }
-    const start = zonedParts(Date.now() - 29 * 86_400_000, cfg.timeZone).ymd;
-    const daily = await client.stationHistory(stationId, 2, start, today);
+    const range = stationDailyHistoryRange(Date.now(), cfg.timeZone);
+    const daily = await client.stationHistory(stationId, 2, range.startAt, range.endAt);
     for (const row of parseStationHistory(daily, 2).energy) {
       insertEnergyRow(db, row);
       days += 1;
@@ -293,9 +294,9 @@ export async function syncDeyeEnergyHistory(db: AppDb): Promise<{ days: number; 
   if (!stationId) return { days: 0, months: 0 };
   const today = zonedParts(Date.now(), cfg.timeZone).ymd;
   // Deye Cloud rejects inclusive windows longer than 31 days ("should be within 31 days").
-  const start = zonedParts(Date.now() - 29 * 86_400_000, cfg.timeZone).ymd;
+  const range = stationDailyHistoryRange(Date.now(), cfg.timeZone);
   let days = 0;
-  const daily = await client.stationHistory(Number(stationId), 2, start, today);
+  const daily = await client.stationHistory(Number(stationId), 2, range.startAt, range.endAt);
   for (const row of parseStationHistory(daily, 2).energy) {
     insertEnergyRow(db, row);
     days += 1;

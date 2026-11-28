@@ -1,5 +1,6 @@
 import type { EnergyTotals, GridStatus, Sample } from "@/lib/types";
 import { deyePasswordField } from "@/lib/secrets";
+import { zonedParts } from "@/lib/time";
 
 /**
  * Deye Cloud Open API v1.0
@@ -111,6 +112,11 @@ const KEY_MAP: Record<string, string> = {
   gridfrequency: "acHz",
   acfrequency: "acHz",
   acfrequencyr: "acHz",
+  dailyactiveproduction: "dailyKwh",
+  dailypvproduction: "dailyKwh",
+  dailypvenergy: "dailyKwh",
+  pvdailyenergy: "dailyKwh",
+  dailygeneration: "dailyKwh",
   dailyenergy: "dailyKwh",
   dailyproduction: "dailyKwh",
   todayenergy: "dailyKwh",
@@ -130,6 +136,7 @@ const KEY_MAP: Record<string, string> = {
   dailycharge: "dailyChargeKwh",
   dailycharging: "dailyChargeKwh",
   dailyimport: "dailyImportKwh",
+  dailyenergypurchased: "dailyImportKwh",
   dailypurchase: "dailyImportKwh",
   dailypurchasingenergy: "dailyImportKwh",
   dailyexport: "dailyExportKwh",
@@ -318,29 +325,88 @@ function gridStatusFrom(
   return "on-grid";
 }
 
+
+/** Daily energy keys, in priority order. DailyActiveProduction is PV-only (confirmed on live Deye hybrids).
+ *  Generic DailyEnergy/DailyProduction can be a different, much smaller counter, so they come last.
+ *  Lifetime Total* consumption keys are intentionally omitted from today's load.
+ */
+export const DAILY_PRODUCTION_KEYS = [
+  "DailyActiveProduction",
+  "DailyPVProduction",
+  "DailyPVEnergy",
+  "PVDailyEnergy",
+  "DailyGeneration",
+  "DailyProduction",
+  "DailyEnergy",
+  "TodayEnergy",
+  "Etoday",
+] as const;
+
+export const DAILY_LOAD_KEYS = [
+  "DailyConsumption",
+  "DailyLoadConsumption",
+  "DailyLodConsumption",
+  "DailyLoadEnergy",
+  "DailyLoad",
+  "TodayConsumption",
+] as const;
+
+export const DAILY_CHARGE_KEYS = ["DailyChargingEnergy", "DailyChargeEnergy", "DailyCharging", "DailyCharge"] as const;
+export const DAILY_DISCHARGE_KEYS = ["DailyDischargingEnergy", "DailyDischargeEnergy", "DailyDischarging", "DailyDischarge"] as const;
+export const DAILY_IMPORT_KEYS = ["DailyEnergyPurchased", "DailyPurchasingEnergy", "DailyPurchase", "DailyImport"] as const;
+export const DAILY_EXPORT_KEYS = ["DailyGridFeedIn", "DailySold", "DailySell", "DailyExport", "DailyGridFeedin"] as const;
+
+export function valuesFromDataList(dataList: unknown): Map<string, number> {
+  const values = new Map<string, number>();
+  if (!Array.isArray(dataList)) return values;
+  for (const item of dataList) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.key !== "string") continue;
+    const parsed = num(row.value);
+    if (parsed == null) continue;
+    values.set(normKey(row.key), parsed);
+  }
+  return values;
+}
+
+export function pickDataListValue(values: Map<string, number>, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const parsed = values.get(normKey(key));
+    if (parsed != null && Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+  return null;
+}
+
+export function stationDailyHistoryRange(now: number, timeZone: string): { startAt: string; endAt: string } {
+  // Inclusive end is tomorrow so Deye returns the in-progress today bucket.
+  return {
+    startAt: zonedParts(now - 28 * 86_400_000, timeZone).ymd,
+    endAt: zonedParts(now + 86_400_000, timeZone).ymd,
+  };
+}
+
 export function dailyEnergyFromDeye(deviceBody: unknown, stationBody: unknown): EnergyTotals | null {
   const device = asArray(deviceBody, ["deviceDataList", "deviceList", "list"])[0];
   const station = stationBody && typeof stationBody === "object" ? (stationBody as Record<string, unknown>) : null;
-  const mapped = device ? mapMeasurePoints(device.dataList) : {};
-  const pick = (...keys: string[]): number => {
-    for (const key of keys) {
-      const fromMap = mapped[key];
-      if (typeof fromMap === "number" && Number.isFinite(fromMap)) return Math.max(0, fromMap);
-      if (station) {
-        const fromStation = num(station[key]);
-        if (fromStation != null) return Math.max(0, fromStation);
-      }
+  const values = device ? valuesFromDataList(device.dataList) : new Map<string, number>();
+  const pick = (keys: readonly string[], stationKey: string): number => {
+    const fromList = pickDataListValue(values, keys);
+    if (fromList != null) return fromList;
+    if (station) {
+      const fromStation = num(station[stationKey]);
+      if (fromStation != null) return Math.max(0, fromStation);
     }
     return 0;
   };
   const totals: EnergyTotals = {
-    productionKwh: pick("dailyKwh", "generationValue"),
-    loadKwh: pick("dailyLoadKwh", "consumptionValue"),
-    chargeKwh: pick("dailyChargeKwh", "chargeValue"),
-    dischargeKwh: pick("dailyDischargeKwh", "dischargeValue"),
-    importKwh: pick("dailyImportKwh", "purchaseValue"),
-    exportKwh: pick("dailyExportKwh", "gridValue"),
-    socClose: typeof mapped.soc === "number" ? mapped.soc : num(station?.batterySOC ?? station?.batterySoc),
+    productionKwh: pick(DAILY_PRODUCTION_KEYS, "generationValue"),
+    loadKwh: pick(DAILY_LOAD_KEYS, "consumptionValue"),
+    chargeKwh: pick(DAILY_CHARGE_KEYS, "chargeValue"),
+    dischargeKwh: pick(DAILY_DISCHARGE_KEYS, "dischargeValue"),
+    importKwh: pick(DAILY_IMPORT_KEYS, "purchaseValue"),
+    exportKwh: pick(DAILY_EXPORT_KEYS, "gridValue"),
+    socClose: pickDataListValue(values, ["SOC", "BatterySOC"]) ?? num(station?.batterySOC ?? station?.batterySoc),
   };
   const hasEnergy = totals.productionKwh + totals.loadKwh + totals.chargeKwh + totals.dischargeKwh + totals.importKwh + totals.exportKwh > 0;
   return hasEnergy ? totals : null;

@@ -359,8 +359,8 @@ function EnergySummary({ data }: { data: DashboardData }) {
   const tiles = [
     { icon: <SunMedium className="size-4 text-amber-300" />, label: "Generation", value: formatKwh1(data.today.productionKwh) },
     { icon: <Battery className="size-4 text-emerald-300" />, label: "To Battery", value: formatKwh1(data.today.chargeKwh) },
-    { icon: <House className="size-4 text-orange-300" />, label: "Consumption", value: formatKwh1(data.directKwh) },
-    { icon: <House className="size-4 text-sky-300" />, label: "Total Consumption", value: formatKwh1(data.today.loadKwh) },
+    { icon: <Battery className="size-4 text-sky-300" />, label: "From Battery", value: formatKwh1(data.today.dischargeKwh) },
+    { icon: <House className="size-4 text-orange-300" />, label: "Consumption", value: formatKwh1(data.today.loadKwh) },
     { icon: <ArrowDownToLine className="size-4 text-sky-300" />, label: "Import", value: formatKwh1(data.today.importKwh) },
     { icon: <ArrowUpFromLine className="size-4 text-violet-300" />, label: "Export", value: formatKwh1(data.today.exportKwh) },
   ];
