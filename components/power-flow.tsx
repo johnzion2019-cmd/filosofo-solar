@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Battery, House, SunMedium, UtilityPole, X } from "lucide-react";
+import { batteryFlowLabel, batteryFlowState } from "@/lib/battery";
 import type { Sample } from "@/lib/types";
 import { formatPowerParts } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -80,7 +81,8 @@ export function PowerFlow({ sample }: FlowProps) {
   const batteryOut = "M 470 332 C 430 310, 380 290, 328 250";
   const batteryIn = "M 328 250 C 380 290, 430 310, 470 332";
   const offGrid = sample.gridStatus === "off-grid";
-  const batteryDetail = sample.batteryW < -25 ? "Charging" : sample.batteryW > 25 ? "Discharging" : "Idle";
+  const batteryFlow = batteryFlowState(sample.batteryW);
+  const batteryDetail = batteryFlowLabel(batteryFlow);
   const gridDetail = offGrid ? "Off grid" : sample.gridW < -25 ? "Export" : sample.gridW > 25 ? "Import" : "Idle";
 
   return (
@@ -147,8 +149,8 @@ export function PowerFlow({ sample }: FlowProps) {
           {motion && sample.pvW > 20 ? <Particles d={pvToHouse} color="#3dd68c" watts={sample.pvW} /> : null}
           {motion && !offGrid && sample.gridW > 30 ? <Particles d={gridImport} color="#c4b5fd" watts={sample.gridW} /> : null}
           {motion && !offGrid && sample.gridW < -30 ? <Particles d={gridExport} color="#c4b5fd" watts={sample.gridW} /> : null}
-          {motion && sample.batteryW > 30 ? <Particles d={batteryOut} color="#49d2ff" watts={sample.batteryW} /> : null}
-          {motion && sample.batteryW < -30 ? <Particles d={batteryIn} color="#49d2ff" watts={sample.batteryW} /> : null}
+          {motion && batteryFlow === "discharging" ? <Particles d={batteryOut} color="#49d2ff" watts={sample.batteryW} /> : null}
+          {motion && batteryFlow === "charging" ? <Particles d={batteryIn} color="#49d2ff" watts={sample.batteryW} /> : null}
         </svg>
         <Node x={150} y={78} label="PV" watts={sample.pvW} icon={<SunMedium className="size-3" />} tone="bg-emerald-400/20 text-emerald-200" />
         <Node

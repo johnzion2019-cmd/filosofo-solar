@@ -4,6 +4,7 @@ import { usePlant } from "@/components/plant-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { batteryFlowLabel, batteryFlowState } from "@/lib/battery";
 import { formatPower } from "@/lib/format";
 
 function metric(value: number | null | undefined, digits: number, unit: string): string {
@@ -55,7 +56,7 @@ export function InverterView() {
           <CardHeader><CardTitle>Battery</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 pb-4">
             <Field label="State of charge" value={`${live.batterySoc.toFixed(0)}%`} />
-            <Field label="Power" value={formatPower(live.batteryW, true)} hint={live.batteryW < -25 ? "Charging" : live.batteryW > 25 ? "Discharging" : "Idle"} />
+            <Field label="Power" value={formatPower(Math.abs(live.batteryW), true)} hint={batteryFlowLabel(batteryFlowState(live.batteryW))} />
             <Field label="Voltage" value={metric(live.batteryV, 1, "V")} />
             <Field label="Current" value={metric(live.batteryA, 1, "A")} />
             <Field label="Temperature" value={metric(live.batteryTemp, 1, "°C")} />

@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { DashboardData } from "@/components/models";
 import type { SolarForecast } from "@/lib/forecast";
+import { batteryFlowLabel, batteryFlowState, formatBatteryChip } from "@/lib/battery";
 import { plantHeroPeriod, type HeroPeriod } from "@/lib/house-hero";
 import type { Payback } from "@/lib/payback";
 import type { PlantRecords } from "@/lib/records";
@@ -228,6 +229,8 @@ function HouseHero({
   const autoPeriod = plantHeroPeriod(now, timeZone);
   const period: HeroPeriod = custom ? autoPeriod : mode === "auto" ? autoPeriod : mode;
   const src = custom ? photo : period === "day" ? dayUrl : nightUrl;
+  const batteryChip = formatBatteryChip(live.batteryW, live.batterySoc);
+  const batteryFlow = batteryChip.state;
 
   function pick(next: "auto" | HeroPeriod) {
     setMode(next);
@@ -266,11 +269,16 @@ function HouseHero({
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/5 to-black/40" />
       <svg viewBox="0 0 360 240" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
         <path d="M180 50 C 180 105, 180 140, 180 168" fill="none" stroke="#f5d76e" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
-        <path d="M72 188 C 115 188, 150 182, 168 174" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        {batteryFlow === "discharging" ? (
+          <path d="M72 188 C 115 188, 150 182, 168 174" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        ) : null}
+        {batteryFlow === "charging" ? (
+          <path d="M168 174 C 150 182, 115 188, 72 188" fill="none" stroke="#3dd68c" strokeWidth="1.6" strokeDasharray="2 4" className="flow-dash" />
+        ) : null}
       </svg>
       <FlowNode align="center" className="left-1/2 top-[5%]" icon={<SunMedium className="size-4 text-amber-200" />} tone="bg-amber-400/25" label="PV Array" value={formatKw(live.pvW)} />
       <FlowNode align="end" className="right-3 top-[12%]" icon={<Zap className="size-4 text-amber-200" />} tone="bg-amber-300/20" label="Grid" value={formatKw(Math.abs(live.gridW))} badge={off ? "Off-grid" : undefined} />
-      <FlowNode align="start" className="bottom-[8%] left-3" icon={<Battery className="size-4 text-emerald-300" />} tone="bg-emerald-400/25" label="Battery" value={`${formatKw(Math.abs(live.batteryW))} · ${live.batterySoc.toFixed(0)}%`} />
+      <FlowNode align="start" className="bottom-[8%] left-3" icon={<Battery className="size-4 text-emerald-300" />} tone="bg-emerald-400/25" label={batteryChip.label} value={batteryChip.value} />
       <FlowNode align="center" className="bottom-[8%] left-1/2" icon={<House className="size-4 text-emerald-200" />} tone="bg-emerald-500/30" label="Home" value={formatKw(live.loadW)} />
     </section>
   );
@@ -375,7 +383,7 @@ function EnergySummary({ data }: { data: DashboardData }) {
 function BatteryCard({ data }: { data: DashboardData }) {
   const live = data.live!;
   const stored = (live.batterySoc / 100) * data.inverter.batteryKwh;
-  const charging = live.batteryW < -15;
+  const batteryFlow = batteryFlowState(live.batteryW);
   return (
     <CardShell title="Battery Details">
       <div className="flex items-center gap-4">
@@ -392,7 +400,7 @@ function BatteryCard({ data }: { data: DashboardData }) {
             <div className="mt-1 text-sm text-amber-200/90">{data.batteryRuntime.label}</div>
           ) : null}
           <dl className="mt-3 space-y-1.5 text-sm">
-            <Row icon={<Zap className="size-3.5 text-amber-300" />} label={charging ? "Charging" : "Discharging"} value={formatKw(Math.abs(live.batteryW))} />
+            <Row icon={<Zap className="size-3.5 text-amber-300" />} label={batteryFlowLabel(batteryFlow)} value={batteryFlow === "idle" ? "0.00 kW" : formatKw(Math.abs(live.batteryW))} />
             <Row icon={<Zap className="size-3.5 text-sky-300" />} label="Voltage" value={live.batteryV != null ? `${live.batteryV.toFixed(2)} V` : "—"} />
             <Row icon={<span className="text-xs text-sky-300">∿</span>} label="Current" value={live.batteryA != null ? `${Math.abs(live.batteryA).toFixed(2)} A` : "—"} />
             <Row icon={<Thermometer className="size-3.5 text-rose-300" />} label="Temp" value={live.batteryTemp != null ? `${live.batteryTemp.toFixed(2)} °C` : "—"} />

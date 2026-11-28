@@ -98,3 +98,37 @@ export function estimateBatteryRuntime(input: {
     label: "Standby",
   };
 }
+
+/** Watts below this are treated as idle on the live dashboard (0.05 kW). */
+export const BATTERY_IDLE_W = 50;
+
+export type BatteryFlowState = "charging" | "discharging" | "idle";
+
+/** Deye BatteryPower: negative = charging, positive = discharging. */
+export function batteryFlowState(batteryW: number): BatteryFlowState {
+  if (!Number.isFinite(batteryW) || Math.abs(batteryW) < BATTERY_IDLE_W) return "idle";
+  return batteryW < 0 ? "charging" : "discharging";
+}
+
+export function batteryFlowLabel(state: BatteryFlowState): "Charging" | "Discharging" | "Idle" {
+  if (state === "charging") return "Charging";
+  if (state === "discharging") return "Discharging";
+  return "Idle";
+}
+
+export function formatBatteryChip(batteryW: number, soc: number): { label: string; value: string; state: BatteryFlowState } {
+  const state = batteryFlowState(batteryW);
+  const pct = `${Math.round(Number.isFinite(soc) ? soc : 0)}%`;
+  if (state === "idle") return { label: "Idle", value: pct, state };
+  return {
+    label: batteryFlowLabel(state),
+    value: `${(Math.abs(batteryW) / 1000).toFixed(2)} kW · ${pct}`,
+    state,
+  };
+}
+
+export function formatBatteryPower(batteryW: number): string {
+  const state = batteryFlowState(batteryW);
+  if (state === "idle") return "Idle";
+  return `${batteryFlowLabel(state)} ${(Math.abs(batteryW) / 1000).toFixed(2)} kW`;
+}

@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { afterAll, describe, expect, it } from "vitest";
 import { evaluateRules } from "@/lib/alerts";
-import { estimateBatteryRuntime } from "@/lib/battery";
+import { batteryFlowState, estimateBatteryRuntime, formatBatteryChip, formatBatteryPower } from "@/lib/battery";
 import { applySettings, ensureDefaults } from "@/lib/config";
 import { openDatabase } from "@/lib/db";
 import { FILOSOFO_SIM, cloudFactor, demoNow, pvPowerW, simulateStep } from "@/lib/demo";
@@ -15,6 +15,7 @@ import { buildEarningsReport, dayEarnings, SEEDED_LIFETIME_TOTAL_PHP, SEEDED_MON
 import { buildEarningsCsv, csvFilename } from "@/lib/csv-report";
 import { buildForecastDay, estimateGenerationKwh, forecastTip } from "@/lib/forecast";
 import { plantHeroPeriod } from "@/lib/house-hero";
+import { integrateSamples } from "@/lib/integrate";
 import { buildPayback } from "@/lib/payback";
 import { buildPlantRecords } from "@/lib/records";
 import { buildHistory, todayTotals } from "@/lib/history";
@@ -500,6 +501,60 @@ describe("off-grid classification", () => {
       null,
     );
     expect(sample.gridStatus).toBe("on-grid");
+  });
+});
+
+
+describe("battery flow sign convention", () => {
+  it("treats negative Deye BatteryPower as charging and formats the hero chip", () => {
+    const charging = sampleFromDeye(
+      {
+        deviceDataList: [
+          {
+            dataList: [
+              { key: "SOC", value: "59" },
+              { key: "BatteryPower", value: "-2080" },
+              { key: "TotalSolarPower", value: "8540" },
+              { key: "TotalConsumptionPower", value: "6230" },
+              { key: "TotalGridPower", value: "0" },
+            ],
+          },
+        ],
+      },
+      null,
+    );
+    expect(charging.batteryW).toBe(-2080);
+    expect(charging.pvW).toBe(8540);
+    expect(charging.loadW).toBe(6230);
+    expect(formatBatteryChip(charging.batteryW, charging.batterySoc)).toEqual({
+      label: "Charging",
+      value: "2.08 kW · 59%",
+      state: "charging",
+    });
+    expect(formatBatteryPower(-2080)).toBe("Charging 2.08 kW");
+    expect(formatBatteryChip(1200, 59)).toEqual({
+      label: "Discharging",
+      value: "1.20 kW · 59%",
+      state: "discharging",
+    });
+    expect(batteryFlowState(-49)).toBe("idle");
+    expect(batteryFlowState(49)).toBe("idle");
+    expect(batteryFlowState(-50)).toBe("charging");
+    expect(batteryFlowState(50)).toBe("discharging");
+    expect(formatBatteryChip(0, 59)).toEqual({ label: "Idle", value: "59%", state: "idle" });
+  });
+
+  it("adds negative battery power to daily charge and positive power to discharge", () => {
+    const hour = 3_600_000;
+    const totals = integrateSamples(
+      [
+        { ts: 0, pvW: 8000, loadW: 6000, batteryW: -2000, gridW: 0, batterySoc: 50 },
+        { ts: hour, pvW: 0, loadW: 1000, batteryW: 1000, gridW: 0, batterySoc: 60 },
+      ],
+      2 * hour,
+    );
+    expect(totals.chargeKwh).toBeCloseTo(2, 5);
+    expect(totals.dischargeKwh).toBeCloseTo(1, 5);
   });
 });
 

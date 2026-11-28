@@ -362,6 +362,7 @@ export function sampleFromDeye(deviceBody: unknown, stationBody: unknown, fallba
 
   const pvW = (typeof mapped.pvW === "number" ? mapped.pvW : null) ?? stationNum("generationPower") ?? 0;
   const loadW = (typeof mapped.loadW === "number" ? mapped.loadW : null) ?? stationNum("consumptionPower") ?? 0;
+  // Deye BatteryPower / batteryPower is signed: negative = charging, positive = discharging. Keep the sign as-is.
   let batteryW = (typeof mapped.batteryW === "number" ? mapped.batteryW : null) ?? stationNum("batteryPower");
   if (batteryW == null) {
     const charge = stationNum("chargePower");
